@@ -1,3 +1,4 @@
+import os
 import random
 import tkinter as tk
 from tkinter import simpledialog, ttk
@@ -55,13 +56,17 @@ class AutoGUI:
         self.market_offer_target = 8
         self.timer_job = None
         self.day_cycle_seconds_left = 0
+        self.game_guide_path = os.path.join(
+            os.path.dirname(__file__),
+            "SPIELPRINZIP.txt",
+        )
 
         self.summary_var = tk.StringVar(
             value="Starte ein neues Spiel und lass den Bestand für dich arbeiten."
         )
         self.selection_var = tk.StringVar(value="Kein Auto ausgewählt")
         self.energy_label_var = tk.StringVar(value="Tank (L)")
-        self.timer_var = tk.StringVar(value="Neues Spiel starten, dann laeuft die Uhr.")
+        self.timer_var = tk.StringVar(value="Neues Spiel starten, dann läuft die Uhr.")
         self.timer_display_var = tk.StringVar(value="--:--")
         self.market_summary_var = tk.StringVar(value="Noch kein Angebot ausgewählt")
         self.market_hint_var = tk.StringVar(value="Noch kein Markt gebaut")
@@ -174,7 +179,6 @@ class AutoGUI:
         self.vehicle_menu.add_command(label="Kundenangebot holen", command=self.request_customer_offer)
         self.vehicle_menu.add_command(label="Speichern", command=self.save_vehicle_changes)
         self.vehicle_menu.add_separator()
-        self.vehicle_menu.add_command(label="Verkaufen", command=self.sell_selected_vehicle)
         self.vehicle_menu.add_command(label="Waschen", command=self.wash_selected_vehicle)
         self.vehicle_menu.add_command(label="Warten", command=self.service_selected_vehicle)
         self.vehicle_menu.add_command(label="Reparieren", command=self.repair_selected_vehicle)
@@ -257,6 +261,19 @@ class AutoGUI:
             return
         self.counteroffer_var.set(raw)
         self.send_counteroffer()
+
+    def open_game_guide(self):
+        if not os.path.exists(self.game_guide_path):
+            gui_print(self.log, "Die Spielprinzip-Datei wurde nicht gefunden.")
+            return
+
+        try:
+            os.startfile(self.game_guide_path)
+        except OSError:
+            gui_print(
+                self.log,
+                f"Konnte die Spielprinzip-Datei nicht öffnen: {self.game_guide_path}",
+            )
 
     def _legacy_setup_header(self):
         hero = self.make_card(self.root, pad=0)
@@ -370,7 +387,7 @@ class AutoGUI:
         timer_shell.pack(anchor="w", pady=(12, 0), fill="x")
         tk.Label(
             timer_shell,
-            text="Naechster Tag",
+            text="Nächster Tag",
             fg=PALETTE["muted"],
             bg=PALETTE["card_alt"],
             font=("Segoe UI", 9, "bold"),
@@ -450,7 +467,7 @@ class AutoGUI:
 
         tk.Label(
             brand,
-            text="Autohaus-Sandbox mit Tageswechsel, Verschleiss, Unfaellen und Verkaufsdruck.",
+            text="Autohaus-Sandbox mit Tageswechsel, Verschleiss, Unfällen und Verkaufsdruck.",
             fg=PALETTE["muted"],
             bg=PALETTE["card"],
             font=("Segoe UI", 11),
@@ -516,7 +533,7 @@ class AutoGUI:
         bullet.pack_propagate(False)
         tk.Label(
             timer_row,
-            text="Naechster Tag",
+            text="Nächster Tag",
             fg=PALETTE["muted"],
             bg=PALETTE["card_alt"],
             font=("Segoe UI", 10, "bold"),
@@ -539,6 +556,20 @@ class AutoGUI:
             wraplength=500,
             justify="left",
         ).pack(anchor="w", pady=(0, 10))
+        header_buttons = tk.Frame(stats_shell, bg=PALETTE["card_alt"])
+        header_buttons.pack(fill="x", pady=(0, 10))
+        self.make_button(
+            header_buttons,
+            "Neues Spiel",
+            self.generieren,
+            PALETTE["accent"],
+        ).pack(side="left")
+        self.make_button(
+            header_buttons,
+            "Spielprinzip TXT",
+            self.open_game_guide,
+            "#334155",
+        ).pack(side="left", padx=(10, 0))
         tk.Label(
             stats_shell,
             text="Rechtsklick hier fuer Neues Spiel und Hof-Aktionen.",
@@ -1167,7 +1198,7 @@ class AutoGUI:
         ).pack(anchor="w", pady=(6, 0))
         tk.Label(
             header,
-            text="Rechtsklick hier oder in einer Fahrzeugliste fuer alle Aktionen.",
+            text="Rechtsklick hier für alle Aktionen.",
             fg="#c4b5fd",
             bg=PALETTE["card"],
             font=("Segoe UI Semibold", 9),
@@ -1190,15 +1221,7 @@ class AutoGUI:
             bg=PALETTE["input_bg"],
             font=("Segoe UI Semibold", 12),
         ).pack(anchor="w")
-        tk.Label(
-            info,
-            text="Hier siehst du direkt, wie schlimm es schon um den Wagen steht und ob sich ein Verkauf lohnt.",
-            fg=PALETTE["muted"],
-            bg=PALETTE["input_bg"],
-            font=("Segoe UI", 10),
-            wraplength=300,
-            justify="left",
-        ).pack(anchor="w", pady=(8, 16))
+        
 
         summary = tk.Frame(
             info,
@@ -1783,17 +1806,17 @@ class AutoGUI:
             if self.customer_offers:
                 self.customer_summary_var.set("Mehrere Kunden warten auf deine Entscheidung.")
                 self.customer_hint_var.set(
-                    "Waehle ein Angebot aus der Liste aus oder hol fuer ein anderes Auto noch mehr Interessenten rein."
+                    "Wähle ein Angebot aus der Liste aus oder hol fuer ein anderes Auto noch mehr Interessenten rein."
                 )
             elif self.selected_vehicle is None:
                 self.customer_summary_var.set("Noch kein Kundenangebot aktiv")
                 self.customer_hint_var.set(
-                    "Waehle links ein eigenes Auto aus und hol dir dann ein Angebot."
+                    "Wähle links ein eigenes Auto aus und hol dir dann ein Angebot."
                 )
             else:
                 self.customer_summary_var.set("Noch kein Kundenangebot aktiv")
                 self.customer_hint_var.set(
-                    f"Fuer #{self.selected_vehicle.fahrzeug_id} {self.selected_vehicle.marke} kannst du jetzt ein Angebot holen."
+                    f"Für #{self.selected_vehicle.fahrzeug_id} {self.selected_vehicle.marke} kannst du jetzt ein Angebot holen."
                 )
             return
 
@@ -1820,7 +1843,7 @@ class AutoGUI:
                 f"Stimmung: {angebot['mood']} | "
                 f"Zustand {fahrzeug.zustand_label} | "
                 f"Schaden {fahrzeug.schaden_label} | "
-                f"Dein naechstes Gegenangebot bitte als Zahl eingeben."
+                f"Dein nächstes Gegenangebot bitte als Zahl eingeben."
             )
         )
 
@@ -2023,7 +2046,7 @@ class AutoGUI:
     def build_customer_offer(self, fahrzeug):
         profiles = [
             {
-                "profile": "Schnaeppchenjaeger",
+                "profile": "Schnäppchenjäger",
                 "mood": "vorsichtig",
                 "start": (0.68, 0.82),
                 "max": (0.84, 0.96),
@@ -2201,7 +2224,7 @@ class AutoGUI:
         if not self.ensure_vehicle_selected():
             return
         if self.selected_vehicle not in self.garage.fahrzeuge:
-            gui_print(self.log, "Das ausgewaehlte Auto steht nicht mehr in deinem Bestand.")
+            gui_print(self.log, "Das ausgewählte Auto steht nicht mehr in deinem Bestand.")
             return
 
         aktive_fuer_auto = [
@@ -2212,7 +2235,7 @@ class AutoGUI:
         if len(aktive_fuer_auto) >= 4:
             gui_print(
                 self.log,
-                "Fuer dieses Auto laufen schon genug Gespraeche. Entscheide erst mal einen Deal.",
+                "Für dieses Auto laufen schon genug Gespräche. Entscheide erst mal einen Deal.",
             )
             return
 
@@ -2228,7 +2251,7 @@ class AutoGUI:
                 f"{angebot['customer']} moechte #{self.selected_vehicle.fahrzeug_id} "
                 f"{self.selected_vehicle.marke} und startet mit "
                 f"{self.format_currency(angebot['offer'])}. "
-                f"Offene Interessenten fuer das Auto: {len(aktive_fuer_auto) + 1}"
+                f"Offene Interessenten für das Auto: {len(aktive_fuer_auto) + 1}"
             ),
         )
 
@@ -2309,7 +2332,7 @@ class AutoGUI:
             )
             angebot["offer"] = neues_angebot
             angebot["mood"] = random.choice(
-                ["zaeh", "leicht genervt", "noch dabei"]
+                ["zäh", "leicht genervt", "noch dabei"]
             )
             self.counteroffer_var.set(str(angebot["offer"]))
             self.refresh_all_views()
@@ -2334,7 +2357,7 @@ class AutoGUI:
             if random.random() < min(0.78, akzeptanz):
                 angebot["offer"] = zielpreis
                 angebot["mood"] = random.choice(
-                    ["seufzt, macht es aber", "geht knapp mit", "zaeh, aber dealbereit"]
+                    ["seufzt, macht es aber", "geht knapp mit", "zäh, aber dealbereit"]
                 )
                 self.counteroffer_var.set(str(angebot["offer"]))
                 self.refresh_all_views()
@@ -2371,7 +2394,7 @@ class AutoGUI:
             return
 
         leave_chance = 0.32 + angebot["rounds"] * 0.12
-        if angebot["profile"] == "Schnaeppchenjaeger":
+        if angebot["profile"] == "Schnäppchenjäger":
             leave_chance += 0.1
         if zielpreis - angebot["stretch_price"] > max(
             1_500,
@@ -2409,8 +2432,8 @@ class AutoGUI:
         gui_print(
             self.log,
             (
-                f"{angebot['customer']} geht nicht so hoch wie gewuenscht, "
-                f"aber schiebt noch {self.format_currency(neues_angebot)} rueber."
+                f"{angebot['customer']} geht nicht so hoch wie gewünscht, "
+                f"aber schiebt noch {self.format_currency(neues_angebot)} rüber."
             ),
         )
 
@@ -2448,7 +2471,7 @@ class AutoGUI:
             self.log,
             (
                 f"Deal mit {angebot['customer']} abgeschlossen. "
-                f"#{fahrzeug.fahrzeug_id} verkauft fuer {self.format_currency(preis)}.{extra}"
+                f"#{fahrzeug.fahrzeug_id} verkauft für {self.format_currency(preis)}.{extra}"
             ),
         )
 
@@ -2464,7 +2487,7 @@ class AutoGUI:
         self.refresh_all_views()
         gui_print(
             self.log,
-            f"Angebot von {kunde} fuer #{fahrzeug.fahrzeug_id} {fahrzeug.marke} abgelehnt.",
+            f"Angebot von {kunde} für #{fahrzeug.fahrzeug_id} {fahrzeug.marke} abgelehnt.",
         )
 
     def _format_timer_text(self):
@@ -2475,7 +2498,7 @@ class AutoGUI:
 
         minutes, seconds = divmod(self.day_cycle_seconds_left, 60)
         self.timer_display_var.set(f"{minutes:02d}:{seconds:02d}")
-        self.timer_var.set(f"Naechster Tag in {minutes:02d}:{seconds:02d}")
+        self.timer_var.set(f"Nächster Tag in {minutes:02d}:{seconds:02d}")
 
     def buy_selected_offer(self):
         if self.selected_offer is None:
@@ -2506,7 +2529,7 @@ class AutoGUI:
         gui_print(
             self.log,
             (
-                f"Auto #{fahrzeug.fahrzeug_id} eingekauft fuer {self.format_currency(preis)}. "
+                f"Auto #{fahrzeug.fahrzeug_id} eingekauft für {self.format_currency(preis)}. "
                 f"Deal-Eindruck: {deal_stufe} | Zustand {fahrzeug.zustand_label} | "
                 f"Schaden {fahrzeug.schaden_label}"
             ),
@@ -2652,6 +2675,20 @@ class AutoGUI:
                 f"Kosten {self.format_currency(kosten)}"
             ),
         )
+
+    def sell_selected_vehicle(self):
+        if not self.ensure_vehicle_selected():
+            return
+
+        fahrzeug = self.selected_vehicle
+        gui_print(
+            self.log,
+            (
+                f"Direktverkauf ist aus. Für #{fahrzeug.fahrzeug_id} {fahrzeug.marke} "
+                "musst du erst ein Kundenangebot holen."
+            ),
+        )
+        self.request_customer_offer()
 
     def log_selected_vehicle(self):
         if not self.ensure_vehicle_selected():

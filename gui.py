@@ -1,6 +1,6 @@
 import random
 import tkinter as tk
-from tkinter import ttk
+from tkinter import simpledialog, ttk
 
 from branding import create_logo_photo
 from data import (
@@ -45,16 +45,24 @@ class AutoGUI:
         self.detail_vars = {}
         self.selected_vehicle = None
         self.selected_offer = None
-        self.customer_offer = None
+        self.selected_customer_offer = None
         self.logo_image = None
         self.market_offers = []
         self.market_tree = None
+        self.customer_offers = []
+        self.customer_tree = None
+        self.customer_offer_counter = 1
+        self.market_offer_target = 8
+        self.timer_job = None
+        self.day_cycle_seconds_left = 0
 
         self.summary_var = tk.StringVar(
             value="Starte ein neues Spiel und lass den Bestand für dich arbeiten."
         )
         self.selection_var = tk.StringVar(value="Kein Auto ausgewählt")
         self.energy_label_var = tk.StringVar(value="Tank (L)")
+        self.timer_var = tk.StringVar(value="Neues Spiel starten, dann laeuft die Uhr.")
+        self.timer_display_var = tk.StringVar(value="--:--")
         self.market_summary_var = tk.StringVar(value="Noch kein Angebot ausgewählt")
         self.market_hint_var = tk.StringVar(value="Noch kein Markt gebaut")
         self.customer_summary_var = tk.StringVar(
@@ -63,6 +71,7 @@ class AutoGUI:
         self.customer_hint_var = tk.StringVar(
             value="Wähle links ein eigenes Auto aus und hol dir dann ein Angebot."
         )
+        self.counteroffer_var = tk.StringVar()
         for key in ("wert", "zustand", "sauberkeit", "schaden", "letzte_fahrt"):
             self.detail_vars[key] = tk.StringVar(value="-")
         self.setup_ui()
@@ -72,6 +81,7 @@ class AutoGUI:
         self.root.geometry("1660x980")
         self.root.minsize(1360, 860)
         self.root.configure(bg=PALETTE["app_bg"])
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.setup_style()
         self.setup_header()
 
@@ -87,6 +97,7 @@ class AutoGUI:
         self.setup_notebook(left)
         self.setup_editor(right)
         self.setup_log()
+        self.setup_context_menus()
         self.refresh_all_views()
 
     def setup_style(self):
@@ -136,7 +147,118 @@ class AutoGUI:
             padding=6,
         )
 
-    def setup_header(self):
+    def setup_context_menus(self):
+        self.general_menu = tk.Menu(self.root, tearoff=0)
+        self.general_menu.add_command(label="Neues Spiel", command=self.generieren)
+        self.general_menu.add_command(label="Alle tanken", command=self.tanken_alle)
+        self.general_menu.add_command(label="Alle laden", command=self.laden_alle)
+        self.general_menu.add_command(label="Status", command=self.status_alle)
+        self.general_menu.add_separator()
+        self.general_menu.add_command(label="Bestand leeren", command=self.clear_inventory)
+
+        self.market_menu = tk.Menu(self.root, tearoff=0)
+        self.market_menu.add_command(label="Angebot kaufen", command=self.buy_selected_offer)
+        self.market_menu.add_command(label="Angebot ablehnen", command=self.reject_selected_offer)
+        self.market_menu.add_separator()
+        self.market_menu.add_command(label="Markt auffrischen", command=self.refresh_market_offers)
+        self.market_menu.add_command(label="Neues Spiel", command=self.generieren)
+
+        self.customer_menu = tk.Menu(self.root, tearoff=0)
+        self.customer_menu.add_command(label="Angebot holen", command=self.request_customer_offer)
+        self.customer_menu.add_command(label="Gegenangebot senden", command=self.prompt_counteroffer)
+        self.customer_menu.add_command(label="Annehmen", command=self.accept_customer_offer)
+        self.customer_menu.add_command(label="Ablehnen", command=self.reject_customer_offer)
+
+        self.vehicle_menu = tk.Menu(self.root, tearoff=0)
+        self.vehicle_menu.add_command(label="Gross bearbeiten", command=self.open_editor_tab)
+        self.vehicle_menu.add_command(label="Kundenangebot holen", command=self.request_customer_offer)
+        self.vehicle_menu.add_command(label="Speichern", command=self.save_vehicle_changes)
+        self.vehicle_menu.add_separator()
+        self.vehicle_menu.add_command(label="Verkaufen", command=self.sell_selected_vehicle)
+        self.vehicle_menu.add_command(label="Waschen", command=self.wash_selected_vehicle)
+        self.vehicle_menu.add_command(label="Warten", command=self.service_selected_vehicle)
+        self.vehicle_menu.add_command(label="Reparieren", command=self.repair_selected_vehicle)
+        self.vehicle_menu.add_command(label="Voll machen", command=self.fill_selected_vehicle)
+        self.vehicle_menu.add_separator()
+        self.vehicle_menu.add_command(label="Ins Log schreiben", command=self.log_selected_vehicle)
+
+        self.bind_context_menu_recursive(self.header_action_shell, self.show_general_menu)
+        self.bind_context_menu_recursive(self.market_context_shell, self.show_market_menu)
+        self.bind_context_menu_recursive(self.customer_context_shell, self.show_customer_menu)
+        self.bind_context_menu_recursive(self.editor_context_shell, self.show_vehicle_menu)
+
+        for key, tree in self.tables.items():
+            tree.bind(
+                "<Button-3>",
+                lambda event, table_key=key: self.show_vehicle_menu(event, table_key),
+                add="+",
+            )
+
+    def bind_context_menu_recursive(self, widget, callback):
+        widget.bind("<Button-3>", callback, add="+")
+        for child in widget.winfo_children():
+            self.bind_context_menu_recursive(child, callback)
+
+    @staticmethod
+    def popup_menu(menu, event):
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    @staticmethod
+    def _select_tree_item_under_pointer(tree):
+        if tree is None:
+            return None
+        y = tree.winfo_pointery() - tree.winfo_rooty()
+        item = tree.identify_row(y)
+        if item:
+            tree.selection_set(item)
+            tree.focus(item)
+            tree.see(item)
+        return item
+
+    def show_general_menu(self, event):
+        self.popup_menu(self.general_menu, event)
+
+    def show_market_menu(self, event):
+        item = self._select_tree_item_under_pointer(self.market_tree)
+        if item:
+            self.on_market_select()
+        self.popup_menu(self.market_menu, event)
+
+    def show_customer_menu(self, event):
+        item = self._select_tree_item_under_pointer(self.customer_tree)
+        if item:
+            self.on_customer_select()
+        self.popup_menu(self.customer_menu, event)
+
+    def show_vehicle_menu(self, event, table_key=None):
+        if table_key is not None and table_key in self.tables:
+            tree = self.tables[table_key]
+            item = self._select_tree_item_under_pointer(tree)
+            if item:
+                self.on_table_select(table_key)
+        self.popup_menu(self.vehicle_menu, event)
+
+    def prompt_counteroffer(self):
+        if self.selected_customer_offer is None:
+            gui_print(self.log, "Such dir erst ein Kundenangebot aus.")
+            return
+
+        current_price = self.selected_customer_offer["offer"]
+        raw = simpledialog.askstring(
+            "Gegenangebot",
+            "Welchen Preis willst du fordern?",
+            initialvalue=str(current_price),
+            parent=self.root,
+        )
+        if raw is None:
+            return
+        self.counteroffer_var.set(raw)
+        self.send_counteroffer()
+
+    def _legacy_setup_header(self):
         hero = self.make_card(self.root, pad=0)
         hero.pack(fill="x", padx=18, pady=(18, 0))
         tk.Frame(hero, bg=PALETTE["accent"], height=3).pack(fill="x")
@@ -237,6 +359,36 @@ class AutoGUI:
             bg=PALETTE["card"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(4, 0))
+        timer_shell = tk.Frame(
+            info,
+            bg=PALETTE["card_alt"],
+            highlightbackground=PALETTE["line"],
+            highlightthickness=1,
+            padx=14,
+            pady=12,
+        )
+        timer_shell.pack(anchor="w", pady=(12, 0), fill="x")
+        tk.Label(
+            timer_shell,
+            text="Naechster Tag",
+            fg=PALETTE["muted"],
+            bg=PALETTE["card_alt"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            timer_shell,
+            textvariable=self.timer_display_var,
+            fg=PALETTE["accent_two"],
+            bg=PALETTE["card_alt"],
+            font=("Bahnschrift", 24, "bold"),
+        ).pack(anchor="w", pady=(4, 0))
+        tk.Label(
+            timer_shell,
+            textvariable=self.timer_var,
+            fg="#c4b5fd",
+            bg=PALETTE["card_alt"],
+            font=("Segoe UI Semibold", 10),
+        ).pack(anchor="w", pady=(3, 0))
 
         actions = tk.Frame(controls, bg=PALETTE["card"])
         actions.pack(side="right")
@@ -262,7 +414,6 @@ class AutoGUI:
 
         toolbar_buttons = [
             ("Neues Spiel", self.generieren, PALETTE["accent"]),
-            ("Nächster Tag", self.next_day, PALETTE["warn"]),
             ("Alle tanken", self.tanken_alle, "#2563eb"),
             ("Alle laden", self.laden_alle, PALETTE["accent_two"]),
             ("Status", self.status_alle, PALETTE["ok"]),
@@ -270,6 +421,131 @@ class AutoGUI:
         ]
         for text, command, color in toolbar_buttons:
             self.make_button(actions, text, command, color).pack(side="left", padx=4)
+
+    def setup_header(self):
+        hero = self.make_card(self.root, pad=0)
+        hero.pack(fill="x", padx=18, pady=(18, 14))
+        tk.Frame(hero, bg=PALETTE["accent"], height=3).pack(fill="x")
+
+        inner = tk.Frame(hero, bg=PALETTE["card"])
+        inner.pack(fill="x", padx=22, pady=18)
+
+        brand = tk.Frame(inner, bg=PALETTE["card"])
+        brand.pack(side="left", fill="both", expand=True, padx=(0, 28))
+        try:
+            self.logo_image = create_logo_photo(width=500, height=102)
+        except Exception:
+            self.logo_image = None
+
+        if self.logo_image is not None:
+            tk.Label(brand, image=self.logo_image, bg=PALETTE["card"]).pack(anchor="w")
+        else:
+            tk.Label(
+                brand,
+                text="RENZFORGE",
+                fg=PALETTE["text"],
+                bg=PALETTE["card"],
+                font=("Bahnschrift", 30, "bold"),
+            ).pack(anchor="w")
+
+        tk.Label(
+            brand,
+            text="Autohaus-Sandbox mit Tageswechsel, Verschleiss, Unfaellen und Verkaufsdruck.",
+            fg=PALETTE["muted"],
+            bg=PALETTE["card"],
+            font=("Segoe UI", 11),
+        ).pack(anchor="w", pady=(6, 0))
+        tk.Label(
+            brand,
+            textvariable=self.summary_var,
+            fg="#cbd5e1",
+            bg=PALETTE["card"],
+            font=("Segoe UI Semibold", 10),
+            wraplength=740,
+            justify="left",
+        ).pack(anchor="w", pady=(14, 0))
+
+        dashboard = tk.Frame(inner, bg=PALETTE["card"], width=560)
+        dashboard.pack(side="right", fill="y")
+        dashboard.pack_propagate(False)
+
+        stats_shell = tk.Frame(
+            dashboard,
+            bg=PALETTE["card_alt"],
+            highlightbackground=PALETTE["line"],
+            highlightthickness=1,
+            padx=16,
+            pady=14,
+        )
+        stats_shell.pack(fill="x")
+        self.header_action_shell = stats_shell
+        
+
+        stat_rows = [
+            ("Tag", "tag", PALETTE["accent"]),
+            ("Kapital", "cash", "#f59e0b"),
+            ("Kapitalziel", "target_cash", "#22c55e"),
+        ]
+        for title, key, color in stat_rows:
+            self.header_stat_vars[key] = tk.StringVar(value="-")
+            row = tk.Frame(stats_shell, bg=PALETTE["card_alt"])
+            row.pack(fill="x", pady=1)
+            bullet = tk.Frame(row, bg=color, width=10, height=10)
+            bullet.pack(side="left", pady=6)
+            bullet.pack_propagate(False)
+            tk.Label(
+                row,
+                text=title,
+                fg=PALETTE["muted"],
+                bg=PALETTE["card_alt"],
+                font=("Segoe UI", 10, "bold"),
+            ).pack(side="left", padx=(10, 8))
+            tk.Label(
+                row,
+                textvariable=self.header_stat_vars[key],
+                fg=PALETTE["text"],
+                bg=PALETTE["card_alt"],
+                font=("Segoe UI Semibold", 10),
+            ).pack(side="right")
+
+        tk.Frame(stats_shell, bg=PALETTE["line"], height=1).pack(fill="x", pady=(10, 8))
+        timer_row = tk.Frame(stats_shell, bg=PALETTE["card_alt"])
+        timer_row.pack(fill="x", pady=(0, 6))
+        bullet = tk.Frame(timer_row, bg=PALETTE["accent_two"], width=10, height=10)
+        bullet.pack(side="left", pady=6)
+        bullet.pack_propagate(False)
+        tk.Label(
+            timer_row,
+            text="Naechster Tag",
+            fg=PALETTE["muted"],
+            bg=PALETTE["card_alt"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side="left", padx=(10, 8))
+        tk.Label(
+            timer_row,
+            textvariable=self.timer_display_var,
+            fg="#c4b5fd",
+            bg=PALETTE["card_alt"],
+            font=("Segoe UI Semibold", 10),
+        ).pack(side="right")
+
+        tk.Frame(stats_shell, bg=PALETTE["line"], height=1).pack(fill="x", pady=(8, 10))
+        tk.Label(
+            stats_shell,
+            text="Neues Spiel wuerfelt den Markt automatisch zwischen 4 und 20 Angeboten.",
+            fg=PALETTE["muted"],
+            bg=PALETTE["card_alt"],
+            font=("Segoe UI", 9),
+            wraplength=500,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+        tk.Label(
+            stats_shell,
+            text="Rechtsklick hier fuer Neues Spiel und Hof-Aktionen.",
+            fg="#c4b5fd",
+            bg=PALETTE["card_alt"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w")
 
     def setup_notebook(self, parent):
         header = tk.Frame(parent, bg=PALETTE["card"])
@@ -334,27 +610,13 @@ class AutoGUI:
             bg=PALETTE["card"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", padx=16, pady=(0, 10))
-
-        action_row = tk.Frame(parent, bg=PALETTE["card"])
-        action_row.pack(fill="x", padx=16, pady=(0, 12))
-        self.make_button(
-            action_row,
-            "Ausgewähltes Angebot kaufen",
-            self.buy_selected_offer,
-            PALETTE["accent"],
-        ).pack(side="left")
-        self.make_button(
-            action_row,
-            "Markt auffrischen",
-            self.refresh_market_offers,
-            PALETTE["warn"],
-        ).pack(side="left", padx=(10, 0))
-        self.make_button(
-            action_row,
-            "Angebot ablehnen",
-            self.reject_selected_offer,
-            "#475569",
-        ).pack(side="left", padx=(10, 0))
+        tk.Label(
+            parent,
+            text="Rechtsklick auf ein Angebot fuer kaufen, ablehnen oder Markt auffrischen.",
+            fg="#c4b5fd",
+            bg=PALETTE["card"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", padx=16, pady=(0, 12))
 
         wrap = tk.Frame(parent, bg=PALETTE["card"])
         wrap.pack(fill="both", expand=True, padx=16, pady=(0, 10))
@@ -409,6 +671,7 @@ class AutoGUI:
         scrollbar.pack(side="right", fill="y")
         tree.configure(yscrollcommand=scrollbar.set)
         self.market_tree = tree
+        self.market_context_shell = shell
 
         info = tk.Frame(
             parent,
@@ -453,25 +716,18 @@ class AutoGUI:
         ).pack(anchor="w", padx=16, pady=(16, 4))
         tk.Label(
             parent,
-            text="Hier kannst du für ein ausgewähltes Bestandsauto Angebote holen und nachverhandeln.",
+            text="Hier kannst du für ausgewählte Bestandsautos mehrere Angebote einsammeln und hart verhandeln.",
             fg=PALETTE["muted"],
             bg=PALETTE["card"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", padx=16, pady=(0, 10))
-
-        action_row = tk.Frame(parent, bg=PALETTE["card"])
-        action_row.pack(fill="x", padx=16, pady=(0, 12))
-        buttons = [
-            ("Angebot holen", self.request_customer_offer, PALETTE["accent"]),
-            ("Nachverhandeln", self.negotiate_customer_offer, PALETTE["warn"]),
-            ("Annehmen", self.accept_customer_offer, PALETTE["ok"]),
-            ("Ablehnen", self.reject_customer_offer, "#475569"),
-        ]
-        for text, command, color in buttons:
-            self.make_button(action_row, text, command, color).pack(
-                side="left",
-                padx=(0, 10),
-            )
+        tk.Label(
+            parent,
+            text="Rechtsklick auf ein Kundenangebot fuer holen, verhandeln, annehmen oder ablehnen.",
+            fg="#c4b5fd",
+            bg=PALETTE["card"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", padx=16, pady=(0, 12))
 
         shell = tk.Frame(
             parent,
@@ -481,8 +737,37 @@ class AutoGUI:
         )
         shell.pack(fill="both", expand=True, padx=16, pady=(0, 16))
 
+        list_shell = tk.Frame(shell, bg=PALETTE["input_bg"])
+        list_shell.pack(fill="both", expand=True, padx=16, pady=(16, 8))
+        columns = ("Kunde", "Auto", "Angebot", "Profil", "Stimmung", "Runden")
+        widths = {
+            "Kunde": 110,
+            "Auto": 160,
+            "Angebot": 130,
+            "Profil": 130,
+            "Stimmung": 150,
+            "Runden": 80,
+        }
+        tree = ttk.Treeview(
+            list_shell,
+            columns=columns,
+            show="headings",
+            style="Forge.Treeview",
+            height=10,
+        )
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=widths[column], anchor="center")
+        tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+        tree.bind("<<TreeviewSelect>>", self.on_customer_select)
+        scrollbar = ttk.Scrollbar(list_shell, orient="vertical", command=tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        tree.configure(yscrollcommand=scrollbar.set)
+        self.customer_tree = tree
+        self.customer_context_shell = shell
+
         info = tk.Frame(shell, bg=PALETTE["input_bg"])
-        info.pack(fill="both", expand=True, padx=16, pady=16)
+        info.pack(fill="x", padx=16, pady=(0, 16))
         tk.Label(
             info,
             text="Aktuelle Auswahl",
@@ -600,7 +885,28 @@ class AutoGUI:
         self.tables[key] = tree
 
     def setup_stats_tab(self, parent):
-        grid = tk.Frame(parent, bg=PALETTE["card"])
+        shell = tk.Frame(parent, bg=PALETTE["card"])
+        shell.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(shell, bg=PALETTE["card"], highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(shell, orient="vertical", command=canvas.yview)
+        content = tk.Frame(canvas, bg=PALETTE["card"])
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def sync_scrollregion(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def sync_width(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        content.bind("<Configure>", sync_scrollregion)
+        canvas.bind("<Configure>", sync_width)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        grid = tk.Frame(content, bg=PALETTE["card"])
         grid.pack(fill="x", padx=16, pady=16)
         for index in range(3):
             grid.grid_columnconfigure(index, weight=1)
@@ -640,12 +946,12 @@ class AutoGUI:
                 font=("Bahnschrift", 18, "bold"),
             ).pack(anchor="w", padx=14, pady=(0, 14))
         analysis = tk.Frame(
-            parent,
+            content,
             bg=PALETTE["input_bg"],
             highlightbackground=PALETTE["line"],
             highlightthickness=1,
         )
-        analysis.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        analysis.pack(fill="x", padx=16, pady=(0, 16))
         tk.Label(
             analysis,
             text="Kurzer Überblick",
@@ -655,7 +961,7 @@ class AutoGUI:
         ).pack(anchor="w", padx=14, pady=(14, 8))
         self.stats_text = tk.Text(
             analysis,
-            height=12,
+            height=14,
             bg=PALETTE["input_bg"],
             fg=PALETTE["text"],
             insertbackground=PALETTE["text"],
@@ -859,22 +1165,13 @@ class AutoGUI:
             bg=PALETTE["card"],
             font=("Segoe UI Semibold", 10),
         ).pack(anchor="w", pady=(6, 0))
-
-        actions = tk.Frame(parent, bg=PALETTE["card"])
-        actions.pack(fill="x", padx=18, pady=(0, 12))
-        buttons = [
-            ("Groß bearbeiten", self.open_editor_tab, PALETTE["accent"]),
-            ("Kundenangebot", self.request_customer_offer, "#2563eb"),
-            ("Speichern", self.save_vehicle_changes, "#4f46e5"),
-            ("Verkaufen", self.sell_selected_vehicle, PALETTE["warn"]),
-            ("Waschen", self.wash_selected_vehicle, PALETTE["accent_two"]),
-            ("Warten", self.service_selected_vehicle, PALETTE["ok"]),
-            ("Reparieren", self.repair_selected_vehicle, PALETTE["danger"]),
-            ("Voll machen", self.fill_selected_vehicle, "#4f46e5"),
-            ("Ins Log schreiben", self.log_selected_vehicle, "#475569"),
-        ]
-        for text, command, color in buttons:
-            self.make_button(actions, text, command, color).pack(fill="x", pady=4)
+        tk.Label(
+            header,
+            text="Rechtsklick hier oder in einer Fahrzeugliste fuer alle Aktionen.",
+            fg="#c4b5fd",
+            bg=PALETTE["card"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", pady=(8, 0))
 
         shell = tk.Frame(
             parent,
@@ -883,6 +1180,7 @@ class AutoGUI:
             highlightthickness=1,
         )
         shell.pack(fill="both", expand=True, padx=18, pady=(0, 18))
+        self.editor_context_shell = shell
         info = tk.Frame(shell, bg=PALETTE["input_bg"])
         info.pack(fill="both", expand=True, padx=14, pady=14)
         tk.Label(
@@ -1012,23 +1310,78 @@ class AutoGUI:
         return []
 
     def _read_offer_target(self):
-        try:
-            return int(self.anzahl_entry.get())
-        except ValueError:
+        return self.market_offer_target
+
+    @staticmethod
+    def _parse_price_input(raw_value):
+        cleaned = "".join(ch for ch in raw_value if ch.isdigit())
+        if not cleaned:
             return None
+        return int(cleaned)
+
+    def _format_timer_text(self):
+        if self.day_cycle_seconds_left <= 0:
+            self.timer_var.set("Tageswechsel steht direkt an.")
+            return
+        minutes, seconds = divmod(self.day_cycle_seconds_left, 60)
+        self.timer_var.set(f"Nächster Tag in {minutes:02d}:{seconds:02d}")
+
+    def stop_day_timer(self):
+        if self.timer_job is not None:
+            self.root.after_cancel(self.timer_job)
+            self.timer_job = None
+
+    def start_day_timer(self):
+        self.stop_day_timer()
+        self.day_cycle_seconds_left = random.randint(
+            self.config.DAY_TIMER_MIN_SEC,
+            self.config.DAY_TIMER_MAX_SEC,
+        )
+        self._format_timer_text()
+        self.timer_job = self.root.after(1000, self.tick_day_timer)
+
+    def tick_day_timer(self):
+        self.timer_job = None
+        if self.day_cycle_seconds_left <= 1:
+            self.day_cycle_seconds_left = 0
+            self._format_timer_text()
+            self.next_day(auto_triggered=True)
+            return
+
+        self.day_cycle_seconds_left -= 1
+        self._format_timer_text()
+        self.timer_job = self.root.after(1000, self.tick_day_timer)
+
+    def on_close(self):
+        self.stop_day_timer()
+        self.root.destroy()
+
+    def market_factor_for(self, fahrzeug):
+        brand_seed = sum(ord(char) for char in fahrzeug.marke)
+        day_wave = (((self.garage.day * 17) + brand_seed) % 13 - 6) * 0.018
+        premium_bias = 0.05 if fahrzeug.premium and self.garage.day % 3 == 0 else 0
+        electric_bias = 0
+        if fahrzeug.elektrisch:
+            electric_bias = 0.04 if self.garage.day % 4 in (1, 2) else -0.03
+        condition_bias = (
+            (fahrzeug.zustand - 70) / 420
+            + (fahrzeug.sauberkeit - 70) / 650
+            - fahrzeug.schaden * 0.035
+        )
+        factor = 1 + day_wave + premium_bias + electric_bias + condition_bias
+        return max(0.72, min(1.24, factor))
 
     def generieren(self):
-        anzahl = self._read_offer_target()
-        if anzahl is None:
-            gui_print(self.log, "Bitte bei den Angeboten nur ganze Zahlen eingeben.")
-            return
-        if anzahl < 4 or anzahl > 20:
-            gui_print(self.log, "Nimm bitte eine Zahl zwischen 4 und 20.")
-            return
+        anzahl = random.randint(4, 20)
+        self.market_offer_target = anzahl
         self.garage.start_new_game()
         self.selected_vehicle = None
         self.selected_offer = None
+        self.selected_customer_offer = None
         self.market_offers = []
+        self.customer_offers = []
+        self.customer_offer_counter = 1
+        self.counteroffer_var.set("")
         clearlog(self.log)
         gui_print(
             self.log,
@@ -1042,6 +1395,7 @@ class AutoGUI:
             ),
         )
         self.fill_market_offers(anzahl)
+        self.start_day_timer()
         self.refresh_all_views()
         self.clear_editor()
         gui_print(
@@ -1053,10 +1407,10 @@ class AutoGUI:
         marke = random.choice(MARKEN)
         farbe, _ = random.choice(FARBEN)
         besitzer = random.choice(BESITZER)
-        premium = marke in PREMIUM_MARKEN or random.random() < 0.18
+        premium = marke in PREMIUM_MARKEN or random.random() < self.config.PREMIUM_RATE
         elektrisch = (
             marke in {"Tesla", "Lucid", "Rimac", "Polestar", "BYD"}
-            or random.random() < 0.32
+            or random.random() < self.config.ELEKTRO_RATE
         )
         if premium:
             preis = random.randint(65000, 420000)
@@ -1112,15 +1466,11 @@ class AutoGUI:
             schaden=schaden,
         )
 
-    def build_market_offer(self):
-        fahrzeug = self.create_random_vehicle()
-
-        if fahrzeug.schaden > 0 or fahrzeug.sauberkeit < 65 or fahrzeug.zustand < 72:
-            faktor = random.uniform(0.72, 0.92)
-        else:
-            faktor = random.uniform(0.88, 1.05)
-
-        ankauf = max(1_500, round(fahrzeug.verkaufswert * faktor))
+    def reprice_market_offer(self, offer):
+        fahrzeug = offer["vehicle"]
+        markt_faktor = self.market_factor_for(fahrzeug)
+        basis_faktor = offer["base_factor"]
+        ankauf = max(1_500, round(fahrzeug.verkaufswert * basis_faktor * markt_faktor))
         differenz = fahrzeug.verkaufswert - ankauf
         if differenz >= 8_000:
             deal = "Stark"
@@ -1129,12 +1479,26 @@ class AutoGUI:
         else:
             deal = "Hart"
 
-        return {
-            "vehicle": fahrzeug,
-            "ankauf": ankauf,
-            "deal": deal,
-            "differenz": differenz,
-        }
+        offer["ankauf"] = ankauf
+        offer["deal"] = deal
+        offer["differenz"] = differenz
+        offer["markt_faktor"] = markt_faktor
+        return offer
+
+    def build_market_offer(self):
+        fahrzeug = self.create_random_vehicle()
+
+        if fahrzeug.schaden > 0 or fahrzeug.sauberkeit < 65 or fahrzeug.zustand < 72:
+            basis_faktor = random.uniform(0.72, 0.92)
+        else:
+            basis_faktor = random.uniform(0.88, 1.05)
+
+        return self.reprice_market_offer(
+            {
+                "vehicle": fahrzeug,
+                "base_factor": basis_faktor,
+            }
+        )
 
     def fill_market_offers(self, target_count):
         while len(self.market_offers) < target_count:
@@ -1215,11 +1579,18 @@ class AutoGUI:
             else:
                 self.selected_vehicle = None
                 self.clear_editor()
+        self.customer_offers = [
+            offer
+            for offer in self.customer_offers
+            if offer["vehicle"] in self.garage.fahrzeuge
+        ]
         if (
-            self.customer_offer is not None
-            and self.customer_offer["vehicle"] not in self.garage.fahrzeuge
+            self.selected_customer_offer is not None
+            and self.selected_customer_offer not in self.customer_offers
         ):
-            self.customer_offer = None
+            self.selected_customer_offer = None
+            self.counteroffer_var.set("")
+        self.update_customer_table()
         self.refresh_customer_panel()
 
     def update_table(self, key, fahrzeuge):
@@ -1258,7 +1629,11 @@ class AutoGUI:
             self.tab_frames["market"],
             text=f"Einkaufen ({len(self.market_offers)})",
         )
-        kunden_label = "Kunden *" if self.customer_offer is not None else "Kunden"
+        kunden_label = (
+            f"Kunden ({len(self.customer_offers)})"
+            if self.customer_offers
+            else "Kunden"
+        )
         self.notebook.tab(self.tab_frames["customers"], text=kunden_label)
         self.notebook.tab(self.tab_frames["all"], text=f"Alle Autos ({len(self.garage.alle_fahrzeuge())})")
         self.notebook.tab(self.tab_frames["normal"], text=f"Normale ({len(self.garage.filter_normal())})")
@@ -1268,10 +1643,7 @@ class AutoGUI:
         stats = self.garage.statistik()
         self.header_stat_vars["tag"].set(str(stats["tag"]))
         self.header_stat_vars["cash"].set(self.short_currency(stats["cash"]))
-        self.header_stat_vars["gesamt"].set(str(stats["gesamt"]))
-        self.header_stat_vars["premium"].set(str(stats["premium"]))
-        self.header_stat_vars["elektro"].set(str(stats["elektro"]))
-        self.header_stat_vars["goal_left"].set(self.short_currency(stats["goal_left"]))
+        self.header_stat_vars["target_cash"].set(self.short_currency(stats["target_cash"]))
         self.stat_vars["cash"].set(self.format_currency(stats["cash"]))
         self.stat_vars["goal_left"].set(self.format_currency(stats["goal_left"]))
         self.stat_vars["sold_count"].set(str(stats["sold_count"]))
@@ -1356,26 +1728,90 @@ class AutoGUI:
             f"Angebot für #{fahrzeug.fahrzeug_id} {fahrzeug.marke} ausgeschlagen.",
         )
 
+    def update_customer_table(self):
+        if self.customer_tree is None:
+            return
+
+        clear_table(self.customer_tree)
+        if self.selected_customer_offer is None and self.customer_offers:
+            self.selected_customer_offer = self.customer_offers[0]
+        selected_id = (
+            str(self.selected_customer_offer["offer_id"])
+            if self.selected_customer_offer is not None
+            else None
+        )
+
+        for offer in self.customer_offers:
+            fahrzeug = offer["vehicle"]
+            self.customer_tree.insert(
+                "",
+                "end",
+                iid=str(offer["offer_id"]),
+                values=(
+                    offer["customer"],
+                    f"#{fahrzeug.fahrzeug_id} {fahrzeug.marke}",
+                    self.format_currency(offer["offer"]),
+                    offer["profile"],
+                    offer["mood"],
+                    f"{offer['rounds']}/{offer['max_rounds']}",
+                ),
+            )
+
+        if selected_id and self.customer_tree.exists(selected_id):
+            self.customer_tree.selection_set(selected_id)
+            self.customer_tree.focus(selected_id)
+            self.customer_tree.see(selected_id)
+
+    def on_customer_select(self, _event=None):
+        if self.customer_tree is None:
+            return
+
+        selection = self.customer_tree.selection()
+        if not selection:
+            return
+
+        offer_id = int(selection[0])
+        for offer in self.customer_offers:
+            if offer["offer_id"] == offer_id:
+                self.selected_customer_offer = offer
+                self.counteroffer_var.set(str(offer["offer"]))
+                break
+        self.refresh_customer_panel()
+
     def refresh_customer_panel(self):
-        if self.customer_offer is None:
-            self.customer_summary_var.set("Noch kein Kundenangebot aktiv")
-            if self.selected_vehicle is None:
+        if self.selected_customer_offer is None:
+            if self.customer_offers:
+                self.customer_summary_var.set("Mehrere Kunden warten auf deine Entscheidung.")
                 self.customer_hint_var.set(
-                    "Wähle links ein eigenes Auto aus und hol dir dann ein Angebot."
+                    "Waehle ein Angebot aus der Liste aus oder hol fuer ein anderes Auto noch mehr Interessenten rein."
+                )
+            elif self.selected_vehicle is None:
+                self.customer_summary_var.set("Noch kein Kundenangebot aktiv")
+                self.customer_hint_var.set(
+                    "Waehle links ein eigenes Auto aus und hol dir dann ein Angebot."
                 )
             else:
+                self.customer_summary_var.set("Noch kein Kundenangebot aktiv")
                 self.customer_hint_var.set(
-                    f"Für #{self.selected_vehicle.fahrzeug_id} {self.selected_vehicle.marke} kannst du jetzt ein Angebot holen."
+                    f"Fuer #{self.selected_vehicle.fahrzeug_id} {self.selected_vehicle.marke} kannst du jetzt ein Angebot holen."
                 )
             return
 
-        angebot = self.customer_offer
+        angebot = self.selected_customer_offer
         fahrzeug = angebot["vehicle"]
+        weitere = len(
+            [
+                offer
+                for offer in self.customer_offers
+                if offer["vehicle"] == fahrzeug and offer["offer_id"] != angebot["offer_id"]
+            ]
+        )
+        extra = f" | Noch {weitere} weitere Interessenten" if weitere else ""
         self.customer_summary_var.set(
             (
-                f"{angebot['customer']} ({angebot['profile']}) bietet dir "
-                f"{self.format_currency(angebot['offer'])} für "
-                f"#{fahrzeug.fahrzeug_id} {fahrzeug.marke}."
+                f"{angebot['customer']} ({angebot['profile']}) bietet aktuell "
+                f"{self.format_currency(angebot['offer'])} fuer "
+                f"#{fahrzeug.fahrzeug_id} {fahrzeug.marke}.{extra}"
             )
         )
         self.customer_hint_var.set(
@@ -1383,7 +1819,8 @@ class AutoGUI:
                 f"Runde {angebot['rounds']}/{angebot['max_rounds']} | "
                 f"Stimmung: {angebot['mood']} | "
                 f"Zustand {fahrzeug.zustand_label} | "
-                f"Schaden {fahrzeug.schaden_label}"
+                f"Schaden {fahrzeug.schaden_label} | "
+                f"Dein naechstes Gegenangebot bitte als Zahl eingeben."
             )
         )
 
@@ -1543,10 +1980,50 @@ class AutoGUI:
         self.fill_market_offers(ziel)
         self.refresh_all_views()
 
+    def _drop_customer_offer(self, angebot):
+        if angebot is None:
+            return
+
+        offer_id = angebot["offer_id"]
+        self.customer_offers = [
+            current
+            for current in self.customer_offers
+            if current["offer_id"] != offer_id
+        ]
+        if (
+            self.selected_customer_offer is not None
+            and self.selected_customer_offer["offer_id"] == offer_id
+        ):
+            self.selected_customer_offer = None
+        if self.selected_customer_offer is None and self.customer_offers:
+            self.selected_customer_offer = self.customer_offers[0]
+            self.counteroffer_var.set(str(self.selected_customer_offer["offer"]))
+        elif self.selected_customer_offer is None:
+            self.counteroffer_var.set("")
+
+    def _drop_customer_offers_for_vehicle(self, fahrzeug):
+        removed = [
+            offer for offer in self.customer_offers if offer["vehicle"] == fahrzeug
+        ]
+        self.customer_offers = [
+            offer for offer in self.customer_offers if offer["vehicle"] != fahrzeug
+        ]
+        if (
+            self.selected_customer_offer is not None
+            and self.selected_customer_offer["vehicle"] == fahrzeug
+        ):
+            self.selected_customer_offer = None
+        if self.selected_customer_offer is None and self.customer_offers:
+            self.selected_customer_offer = self.customer_offers[0]
+            self.counteroffer_var.set(str(self.selected_customer_offer["offer"]))
+        elif self.selected_customer_offer is None:
+            self.counteroffer_var.set("")
+        return removed
+
     def build_customer_offer(self, fahrzeug):
         profiles = [
             {
-                "profile": "Schnäppchenjäger",
+                "profile": "Schnaeppchenjaeger",
                 "mood": "vorsichtig",
                 "start": (0.68, 0.82),
                 "max": (0.84, 0.96),
@@ -1571,7 +2048,7 @@ class AutoGUI:
             profiles.append(
                 {
                     "profile": "Sammler",
-                    "mood": "heiß auf das Auto",
+                    "mood": "heiss auf das Auto",
                     "start": (0.92, 1.02),
                     "max": (1.04, 1.16),
                     "max_rounds": 4,
@@ -1580,32 +2057,48 @@ class AutoGUI:
 
         profil = random.choice(profiles)
         marktwert = fahrzeug.verkaufswert
-        start_ratio = random.uniform(*profil["start"])
-        max_ratio = random.uniform(*profil["max"])
+        markt_heat = self.market_factor_for(fahrzeug)
+        heat_bonus = (markt_heat - 1.0) * 0.22
+        start_ratio = random.uniform(*profil["start"]) + heat_bonus
+        max_ratio = random.uniform(*profil["max"]) + heat_bonus * 0.85
 
         if fahrzeug.schaden >= 2:
             start_ratio -= 0.05
             max_ratio -= 0.06
         if fahrzeug.sauberkeit < 50:
             start_ratio -= 0.03
+            max_ratio -= 0.01
         if fahrzeug.zustand > 90 and fahrzeug.sauberkeit > 85:
             max_ratio += 0.02
+        if fahrzeug.premium and markt_heat > 1.06:
+            max_ratio += 0.03
 
-        start_price = max(1_000, round(marktwert * max(0.55, start_ratio)))
-        max_price = max(start_price, round(marktwert * max(0.68, max_ratio)))
+        start_ratio = max(0.55, min(1.08, start_ratio))
+        max_ratio = max(start_ratio + 0.04, min(1.22, max_ratio))
+        start_price = max(1_000, round(marktwert * start_ratio))
+        max_price = max(start_price, round(marktwert * max_ratio))
+        stretch = max(
+            900,
+            round(marktwert * (0.014 + max(0, markt_heat - 1) * 0.06)),
+        )
+        offer_id = self.customer_offer_counter
+        self.customer_offer_counter += 1
 
         return {
+            "offer_id": offer_id,
             "vehicle": fahrzeug,
             "customer": random.choice(BESITZER),
             "profile": profil["profile"],
             "mood": profil["mood"],
             "offer": start_price,
             "max_price": max_price,
+            "stretch_price": max_price + stretch,
+            "market_heat": markt_heat,
             "rounds": 0,
             "max_rounds": profil["max_rounds"],
         }
 
-    def request_customer_offer(self):
+    def _legacy_request_customer_offer(self):
         if not self.ensure_vehicle_selected():
             return
 
@@ -1622,7 +2115,7 @@ class AutoGUI:
             ),
         )
 
-    def negotiate_customer_offer(self):
+    def _legacy_negotiate_customer_offer(self):
         if self.customer_offer is None:
             gui_print(self.log, "Es gibt gerade kein Kundenangebot zum Verhandeln.")
             return
@@ -1669,7 +2162,7 @@ class AutoGUI:
             ),
         )
 
-    def accept_customer_offer(self):
+    def _legacy_accept_customer_offer(self):
         if self.customer_offer is None:
             gui_print(self.log, "Es gibt gerade kein Kundenangebot zum Annehmen.")
             return
@@ -1690,7 +2183,7 @@ class AutoGUI:
             ),
         )
 
-    def reject_customer_offer(self):
+    def _legacy_reject_customer_offer(self):
         if self.customer_offer is None:
             gui_print(self.log, "Es gibt gerade kein Kundenangebot zum Ablehnen.")
             return
@@ -1704,11 +2197,292 @@ class AutoGUI:
             f"Angebot von {kunde} für #{fahrzeug.fahrzeug_id} {fahrzeug.marke} abgelehnt.",
         )
 
+    def request_customer_offer(self):
+        if not self.ensure_vehicle_selected():
+            return
+        if self.selected_vehicle not in self.garage.fahrzeuge:
+            gui_print(self.log, "Das ausgewaehlte Auto steht nicht mehr in deinem Bestand.")
+            return
+
+        aktive_fuer_auto = [
+            offer
+            for offer in self.customer_offers
+            if offer["vehicle"] == self.selected_vehicle
+        ]
+        if len(aktive_fuer_auto) >= 4:
+            gui_print(
+                self.log,
+                "Fuer dieses Auto laufen schon genug Gespraeche. Entscheide erst mal einen Deal.",
+            )
+            return
+
+        angebot = self.build_customer_offer(self.selected_vehicle)
+        self.customer_offers.append(angebot)
+        self.selected_customer_offer = angebot
+        self.counteroffer_var.set(str(angebot["offer"]))
+        self.notebook.select(self.tab_frames["customers"])
+        self.refresh_all_views()
+        gui_print(
+            self.log,
+            (
+                f"{angebot['customer']} moechte #{self.selected_vehicle.fahrzeug_id} "
+                f"{self.selected_vehicle.marke} und startet mit "
+                f"{self.format_currency(angebot['offer'])}. "
+                f"Offene Interessenten fuer das Auto: {len(aktive_fuer_auto) + 1}"
+            ),
+        )
+
+    def send_counteroffer(self):
+        if self.selected_customer_offer is None:
+            gui_print(self.log, "Such dir erst ein Kundenangebot aus der Liste aus.")
+            return
+
+        zielpreis = self._parse_price_input(self.counteroffer_var.get())
+        if zielpreis is None:
+            gui_print(self.log, "Dein Gegenangebot braucht eine Zahl als Preis.")
+            return
+
+        angebot = self.selected_customer_offer
+        fahrzeug = angebot["vehicle"]
+        if fahrzeug not in self.garage.fahrzeuge:
+            self._drop_customer_offers_for_vehicle(fahrzeug)
+            self.refresh_all_views()
+            gui_print(self.log, "Das Auto ist nicht mehr im Bestand. Der Deal ist damit erledigt.")
+            return
+        if zielpreis <= angebot["offer"]:
+            gui_print(
+                self.log,
+                (
+                    "Dein Gegenangebot liegt unter dem aktuellen Kundenpreis. "
+                    "Entweder direkt annehmen oder mehr verlangen."
+                ),
+            )
+            return
+        if angebot["rounds"] >= angebot["max_rounds"]:
+            kunde = angebot["customer"]
+            self._drop_customer_offer(angebot)
+            self.refresh_all_views()
+            gui_print(
+                self.log,
+                f"{kunde} hat keine Lust mehr zu verhandeln und ist weg.",
+            )
+            return
+
+        aktuelles_angebot = angebot["offer"]
+        angebot["rounds"] += 1
+        fair_gap = max(750, round(fahrzeug.verkaufswert * 0.022))
+
+        if zielpreis <= angebot["max_price"]:
+            akzeptanz = 0.34
+            if zielpreis - aktuelles_angebot <= fair_gap:
+                akzeptanz += 0.28
+            if angebot["profile"] in {"Sammler", "Markenfan"}:
+                akzeptanz += 0.14
+            if angebot["market_heat"] > 1.05:
+                akzeptanz += 0.12
+            if angebot["rounds"] == angebot["max_rounds"]:
+                akzeptanz -= 0.12
+
+            if random.random() < min(0.9, akzeptanz):
+                angebot["offer"] = zielpreis
+                angebot["mood"] = random.choice(
+                    ["dealbereit", "nickt ab", "geht mit"]
+                )
+                self.counteroffer_var.set(str(angebot["offer"]))
+                self.refresh_all_views()
+                gui_print(
+                    self.log,
+                    (
+                        f"{angebot['customer']} geht auf {self.format_currency(zielpreis)} mit. "
+                        "Wenn du willst, kannst du den Deal jetzt annehmen."
+                    ),
+                )
+                return
+
+            anhebung = max(
+                250,
+                round((zielpreis - aktuelles_angebot) * random.uniform(0.45, 0.78)),
+            )
+            neues_angebot = min(
+                angebot["max_price"],
+                max(aktuelles_angebot + 250, aktuelles_angebot + anhebung),
+            )
+            angebot["offer"] = neues_angebot
+            angebot["mood"] = random.choice(
+                ["zaeh", "leicht genervt", "noch dabei"]
+            )
+            self.counteroffer_var.set(str(angebot["offer"]))
+            self.refresh_all_views()
+            gui_print(
+                self.log,
+                (
+                    f"{angebot['customer']} zieht auf {self.format_currency(neues_angebot)} nach, "
+                    "aber ganz bei deinem Preis ist die Person noch nicht."
+                ),
+            )
+            return
+
+        if zielpreis <= angebot["stretch_price"]:
+            stretch_gap = zielpreis - angebot["max_price"]
+            stretch_limit = max(1_000, round(fahrzeug.verkaufswert * 0.03))
+            akzeptanz = 0.18 + max(0, angebot["market_heat"] - 1) * 0.55
+            if angebot["profile"] == "Sammler":
+                akzeptanz += 0.1
+            if stretch_gap <= stretch_limit:
+                akzeptanz += 0.14
+
+            if random.random() < min(0.78, akzeptanz):
+                angebot["offer"] = zielpreis
+                angebot["mood"] = random.choice(
+                    ["seufzt, macht es aber", "geht knapp mit", "zaeh, aber dealbereit"]
+                )
+                self.counteroffer_var.set(str(angebot["offer"]))
+                self.refresh_all_views()
+                gui_print(
+                    self.log,
+                    (
+                        f"{angebot['customer']} geht erstaunlich weit mit und akzeptiert "
+                        f"{self.format_currency(zielpreis)}."
+                    ),
+                )
+                return
+
+            anhebung = max(
+                300,
+                round((zielpreis - aktuelles_angebot) * random.uniform(0.35, 0.62)),
+            )
+            neues_angebot = min(
+                angebot["stretch_price"],
+                max(aktuelles_angebot + 250, aktuelles_angebot + anhebung),
+            )
+            angebot["offer"] = neues_angebot
+            angebot["mood"] = random.choice(
+                ["fast am Limit", "ringt noch", "kommt dir etwas entgegen"]
+            )
+            self.counteroffer_var.set(str(angebot["offer"]))
+            self.refresh_all_views()
+            gui_print(
+                self.log,
+                (
+                    f"{angebot['customer']} geht nicht ganz so hoch, legt aber "
+                    f"auf {self.format_currency(neues_angebot)} nach."
+                ),
+            )
+            return
+
+        leave_chance = 0.32 + angebot["rounds"] * 0.12
+        if angebot["profile"] == "Schnaeppchenjaeger":
+            leave_chance += 0.1
+        if zielpreis - angebot["stretch_price"] > max(
+            1_500,
+            round(fahrzeug.verkaufswert * 0.05),
+        ):
+            leave_chance += 0.28
+
+        if random.random() < min(0.95, leave_chance):
+            kunde = angebot["customer"]
+            self._drop_customer_offer(angebot)
+            self.refresh_all_views()
+            gui_print(
+                self.log,
+                f"{kunde} findet deinen Preis zu wild und ist raus.",
+            )
+            return
+
+        neues_angebot = min(
+            angebot["stretch_price"],
+            max(
+                aktuelles_angebot + 250,
+                angebot["max_price"]
+                + max(
+                    250,
+                    round((angebot["stretch_price"] - angebot["max_price"]) * 0.55),
+                ),
+            ),
+        )
+        angebot["offer"] = neues_angebot
+        angebot["mood"] = random.choice(
+            ["kaum noch Luft", "fast am Limit", "noch einmal nachgezogen"]
+        )
+        self.counteroffer_var.set(str(angebot["offer"]))
+        self.refresh_all_views()
+        gui_print(
+            self.log,
+            (
+                f"{angebot['customer']} geht nicht so hoch wie gewuenscht, "
+                f"aber schiebt noch {self.format_currency(neues_angebot)} rueber."
+            ),
+        )
+
+    def accept_customer_offer(self):
+        if self.selected_customer_offer is None:
+            gui_print(self.log, "Es gibt gerade kein Kundenangebot zum Annehmen.")
+            return
+
+        angebot = self.selected_customer_offer
+        fahrzeug = angebot["vehicle"]
+        andere = max(
+            0,
+            len(
+                [
+                    offer
+                    for offer in self.customer_offers
+                    if offer["vehicle"] == fahrzeug
+                ]
+            )
+            - 1,
+        )
+        preis = self.garage.sell_vehicle(fahrzeug, angebot["offer"])
+        if preis is None:
+            self._drop_customer_offers_for_vehicle(fahrzeug)
+            self.refresh_all_views()
+            gui_print(self.log, "Das Auto ist schon weg. Der Deal konnte nicht mehr geschlossen werden.")
+            return
+        if self.selected_vehicle == fahrzeug:
+            self.selected_vehicle = None
+        self._drop_customer_offers_for_vehicle(fahrzeug)
+        self.refresh_all_views()
+        self.clear_editor()
+        extra = f" {andere} weitere Interessenten sind damit auch raus." if andere else ""
+        gui_print(
+            self.log,
+            (
+                f"Deal mit {angebot['customer']} abgeschlossen. "
+                f"#{fahrzeug.fahrzeug_id} verkauft fuer {self.format_currency(preis)}.{extra}"
+            ),
+        )
+
+    def reject_customer_offer(self):
+        if self.selected_customer_offer is None:
+            gui_print(self.log, "Es gibt gerade kein Kundenangebot zum Ablehnen.")
+            return
+
+        angebot = self.selected_customer_offer
+        kunde = angebot["customer"]
+        fahrzeug = angebot["vehicle"]
+        self._drop_customer_offer(angebot)
+        self.refresh_all_views()
+        gui_print(
+            self.log,
+            f"Angebot von {kunde} fuer #{fahrzeug.fahrzeug_id} {fahrzeug.marke} abgelehnt.",
+        )
+
+    def _format_timer_text(self):
+        if self.day_cycle_seconds_left <= 0:
+            self.timer_display_var.set("00:00")
+            self.timer_var.set("Tageswechsel steht direkt an.")
+            return
+
+        minutes, seconds = divmod(self.day_cycle_seconds_left, 60)
+        self.timer_display_var.set(f"{minutes:02d}:{seconds:02d}")
+        self.timer_var.set(f"Naechster Tag in {minutes:02d}:{seconds:02d}")
+
     def buy_selected_offer(self):
         if self.selected_offer is None:
             gui_print(self.log, "Bitte zuerst ein Angebot im Einkauf-Tab auswählen.")
             return
 
+        deal_stufe = self.selected_offer["deal"]
         fahrzeug = self.selected_offer["vehicle"]
         erfolgreich, preis = self.garage.buy_vehicle(
             fahrzeug,
@@ -1732,27 +2506,48 @@ class AutoGUI:
         gui_print(
             self.log,
             (
-                f"Auto #{fahrzeug.fahrzeug_id} eingekauft für {self.format_currency(preis)}. "
-                f"Aktueller Marktwert: {fahrzeug.verkaufswert_label}"
+                f"Auto #{fahrzeug.fahrzeug_id} eingekauft fuer {self.format_currency(preis)}. "
+                f"Deal-Eindruck: {deal_stufe} | Zustand {fahrzeug.zustand_label} | "
+                f"Schaden {fahrzeug.schaden_label}"
             ),
         )
 
-    def next_day(self):
+    def next_day(self, auto_triggered=False):
         report = self.garage.advance_day()
         ziel = self._read_offer_target() or 8
-        self.fill_market_offers(max(4, min(20, ziel)))
-        self.customer_offer = None
+        ziel = max(4, min(20, ziel))
+        abgelaufene_kunden = len(self.customer_offers)
+        self.customer_offers = []
+        self.selected_customer_offer = None
+        self.counteroffer_var.set("")
+        self.market_offers = self.market_offers[:ziel]
+        for offer in self.market_offers:
+            self.reprice_market_offer(offer)
+        self.fill_market_offers(ziel)
         self.refresh_all_views()
+        self.start_day_timer()
 
         gui_print(
             self.log,
             (
-                f"Tag {report['day']} abgeschlossen. "
+                f"{'Zeit ist um. ' if auto_triggered else ''}Tag {report['day']} abgeschlossen. "
                 f"{report['gesamt_km']} km gefahren | "
                 f"Wertverlust {self.format_currency(report['wertverlust'])} | "
                 f"Unfälle {report['unfaelle']}"
             ),
         )
+        gui_print(
+            self.log,
+            (
+                f"Der Markt wurde für Tag {self.garage.day} neu eingepreist. "
+                f"Gerade sind {len(self.market_offers)} Angebote offen."
+            ),
+        )
+        if abgelaufene_kunden:
+            gui_print(
+                self.log,
+                f"{abgelaufene_kunden} Kundenangebot(e) sind über Nacht verfallen.",
+            )
         if not report["events"]:
             gui_print(self.log, "Noch kein eigenes Auto auf dem Hof. Heute war nur Marktbeobachtung.")
         for event in report["events"][:6]:
@@ -1772,6 +2567,7 @@ class AutoGUI:
 
         fahrzeug = self.selected_vehicle
         preis = self.garage.sell_vehicle(fahrzeug)
+        self._drop_customer_offers_for_vehicle(fahrzeug)
         self.selected_vehicle = None
         self.refresh_all_views()
         self.clear_editor()
@@ -1865,6 +2661,9 @@ class AutoGUI:
     def clear_inventory(self):
         self.garage.clear()
         self.selected_vehicle = None
+        self.selected_customer_offer = None
+        self.customer_offers = []
+        self.counteroffer_var.set("")
         clearlog(self.log)
         gui_print(self.log, "Der Hof ist leer. Kasse und Tag bleiben so, wie sie gerade sind.")
         self.refresh_all_views()

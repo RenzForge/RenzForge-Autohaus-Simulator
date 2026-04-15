@@ -159,8 +159,8 @@ class Auto:
 
     def auffuellen_kosten(self):
         if self.elektrisch:
-            return round((self.config.MAX_BATTERIE - self.tank) * self.config.STROM_PREIS)
-        return round((self.config.MAX_TANK - self.tank) * self.config.BENZIN_PREIS)
+            return round((self.config.MAX_BATTERIE - self.tank) * self.config.strompreis)
+        return round((self.config.MAX_TANK - self.tank) * self.config.benzinpreis)
 
     def set_energie(self, wert):
         limit = self.config.MAX_BATTERIE if self.elektrisch else self.config.MAX_TANK
@@ -370,15 +370,15 @@ class Garage:
         self.name = name
         self.config = config
         self.fahrzeuge = []
-        self.cash = config.START_CASH
+        self.cash = config.START_KAPITAL
         self.day = 1
         self.sold_count = 0
         self.accident_count = 0
-        self.target_cash = config.TARGET_CASH
+        self.target_cash = config.KAPITAL_ZIEL
 
     def start_new_game(self):
         self.clear()
-        self.cash = self.config.START_CASH
+        self.cash = self.config.START_KAPITAL
         self.day = 1
         self.sold_count = 0
         self.accident_count = 0

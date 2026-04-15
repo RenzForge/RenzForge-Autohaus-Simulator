@@ -2,33 +2,33 @@ RENZFORGE AUTOHAUS - SPIELPRINZIP
 ================================
 
 Die kurze Idee:
-Du baust dir mit cleveren Einkaeufen und guten Verhandlungen ein profitables Autohaus auf.
+Du baust dir mit cleveren Einkäufen und guten Verhandlungen ein profitables Autohaus auf.
 
 DER GRUNDLEGAUF
 ---------------
 1. Neues Spiel starten
-   Der Markt wird automatisch mit zufaelligen Angeboten gefuellt.
+   Der Markt wird automatisch mit zufälligen Angeboten gefüllt.
    Die Anzahl liegt immer irgendwo zwischen 4 und 20.
 
-2. Angebote pruefen
+2. Angebote prüfen
    Du siehst nicht den exakten "wahren" Marktwert.
-   Du musst also aus Zustand, Sauberkeit, Schaden, Typ und Bauchgefuehl entscheiden,
+   Du musst also aus Zustand, Sauberkeit, Schaden, Typ und Bauchgefühl entscheiden,
    ob sich ein Kauf lohnt oder ob das Angebot eher eine Falle ist.
 
 3. Fahrzeuge managen
    Deine Autos bleiben nicht perfekt.
    Mit jedem Tag fahren sie automatisch, sammeln Kilometer, werden dreckig,
-   verlieren an Zustand und koennen sogar Schaeden bekommen.
+   verlieren an Zustand und können sogar Schäden bekommen.
 
 4. Zeitdruck ernst nehmen
-   Der Tag laeuft automatisch weiter.
-   Du kannst also nicht ewig ueberlegen.
-   Das Spiel soll sich eher wie "unter Druck organisieren" anfuehlen
+   Der Tag läuft automatisch weiter.
+   Du kannst also nicht ewig überlegen.
+   Das Spiel soll sich eher wie "unter Druck organisieren" anfühlen
    und weniger wie ein statischer Editor.
 
 5. Kundenangebote holen
-   Verkaufen laeuft ueber Interessenten.
-   Fuer ein Fahrzeug kannst du mehrere Angebote sammeln.
+   Verkaufen läuft über Interessenten.
+   Für ein Fahrzeug kannst du mehrere Angebote sammeln.
    Danach entscheidest du, wer vielversprechend wirkt.
 
 6. Verhandeln
@@ -44,30 +44,30 @@ DER GRUNDLEGAUF
 
 WORAUF DU ACHTEN SOLLTEST
 -------------------------
-- Geringe Schaeden sind oft noch okay.
-- Schmutzige Autos wirken schlechter und koennen im Verkauf leiden.
-- Premium-Autos koennen stark sein, aber auch teuer scheitern.
-- Elektro und Premium koennen je nach Marktlage mal staerker, mal schwaecher laufen.
+- Geringe Schäden sind oft noch okay.
+- Schmutzige Autos wirken schlechter und können im Verkauf leiden.
+- Premium-Autos können stark sein, aber auch teuer scheitern.
+- Elektro und Premium können je nach Marktlage mal stärker, mal schwächer laufen.
 - Ein frischer, sauberer Wagen mit gutem Zustand verkauft sich deutlich entspannter.
 
 WIE DU GELD VERBRENNEN KANNST
 -----------------------------
 - Zu teuer einkaufen
-- Schaeden ignorieren
+- Schäden ignorieren
 - Alte, heruntergekommene Autos einfach liegen lassen
 - Zu aggressiv verhandeln, bis Kunden abspringen
-- Zu lange warten, waehrend der Tageszyklus weiterlaeuft
+- Zu lange warten, während der Tageszyklus weiterläuft
 
 EIN GUTER START
 ---------------
 - Erst ein paar solide Autos holen, nicht nur riskante Luxusdeals
-- Nach dem Kauf Zustand und Schaden schnell pruefen
-- Gute Fahrzeuge frueh an Kunden bringen
-- Problemfaelle waschen, warten oder reparieren, bevor du grosse Preise verlangst
+- Nach dem Kauf Zustand und Schaden schnell prüfen
+- Gute Fahrzeuge früh an Kunden bringen
+- Problemfälle waschen, warten oder reparieren, bevor du grosse Preise verlangst
 
 WAS DEN SPASS AUSMACHT
 ----------------------
 Das Spiel lebt davon, dass nicht alles offen sichtbar ist.
-Du musst Chancen lesen, Risiken einschaetzen und unter Druck entscheiden.
+Du musst Chancen lesen, Risiken einschätzen und unter Druck entscheiden.
 Genau daraus entsteht der Reiz:
-Nicht jedes Auto ist ein Treffer, aber ein guter Deal fuehlt sich richtig gut an.
+Nicht jedes Auto ist ein Treffer, aber ein guter Deal fühlt sich richtig gut an.

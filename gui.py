@@ -14,6 +14,7 @@ from data import (
     PREMIUM_MARKEN,
 )
 from models import Auto, ElektroAuto, Garage
+from ui_text import get_ui_text
 from utils import clear_table, clearlog, gui_print
 
 PALETTE = {
@@ -33,10 +34,94 @@ PALETTE = {
 }
 
 
+class StatusLogProxy:
+    def __init__(self, status_var, history_limit=40):
+        self.status_var = status_var
+        self.history_limit = history_limit
+        self.messages = []
+
+    def insert(self, _index, text):
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return
+        self.messages.extend(lines)
+        self.messages = self.messages[-self.history_limit :]
+        self.status_var.set(self.messages[-1])
+
+    def see(self, _index):
+        return
+
+    def delete(self, _start=None, _end=None):
+        self.messages.clear()
+        self.status_var.set("Bereit.")
+
+    def recent_messages(self, amount=5):
+        if not self.messages:
+            return []
+        return self.messages[-amount:]
+
+
+class ToolTip:
+    def __init__(self, widget, text_source, bg="#101827", fg="#e2e8f0"):
+        self.widget = widget
+        self.text_source = text_source
+        self.bg = bg
+        self.fg = fg
+        self.tip_window = None
+        self.after_id = None
+        widget.bind("<Enter>", self.schedule, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+
+    def get_text(self):
+        if callable(self.text_source):
+            return self.text_source()
+        return self.text_source
+
+    def schedule(self, _event=None):
+        self.cancel()
+        self.after_id = self.widget.after(420, self.show)
+
+    def cancel(self):
+        if self.after_id is not None:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+
+    def show(self):
+        text = self.get_text()
+        if not text or self.tip_window is not None:
+            return
+        x = self.widget.winfo_rootx() + 18
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+        self.tip_window = tip = tk.Toplevel(self.widget)
+        tip.wm_overrideredirect(True)
+        tip.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tip,
+            text=text,
+            justify="left",
+            bg=self.bg,
+            fg=self.fg,
+            relief="solid",
+            bd=1,
+            padx=10,
+            pady=6,
+            font=("Segoe UI", 9),
+        )
+        label.pack()
+
+    def hide(self, _event=None):
+        self.cancel()
+        if self.tip_window is not None:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
 class AutoGUI:
     def __init__(self, root, config):
         self.root = root
         self.config = config
+        self.text = get_ui_text()
         self.garage = Garage("RenzForge Garage", config)
         self.tables = {}
         self.tab_frames = {}
@@ -56,54 +141,52 @@ class AutoGUI:
         self.market_offer_target = 8
         self.timer_job = None
         self.day_cycle_seconds_left = 0
+        self.layout_mode = None
+        self.tooltips = []
         self.game_guide_path = os.path.join(
             os.path.dirname(__file__),
             "SPIELPRINZIP.txt",
         )
 
-        self.summary_var = tk.StringVar(
-            value="Starte ein neues Spiel und lass den Bestand für dich arbeiten."
-        )
-        self.selection_var = tk.StringVar(value="Kein Auto ausgewählt")
-        self.energy_label_var = tk.StringVar(value="Tank (L)")
-        self.timer_var = tk.StringVar(value="Neues Spiel starten, dann läuft die Uhr.")
-        self.timer_display_var = tk.StringVar(value="--:--")
-        self.market_summary_var = tk.StringVar(value="Noch kein Angebot ausgewählt")
-        self.market_hint_var = tk.StringVar(value="Noch kein Markt gebaut")
-        self.customer_summary_var = tk.StringVar(
-            value="Noch kein Kundenangebot aktiv"
-        )
-        self.customer_hint_var = tk.StringVar(
-            value="Wähle links ein eigenes Auto aus und hol dir dann ein Angebot."
-        )
+        self.summary_var = tk.StringVar(value=self.text["summary_default"])
+        self.selection_var = tk.StringVar(value=self.text["selection_empty"])
+        self.energy_label_var = tk.StringVar(value=self.text["energy_tank"])
+        self.timer_var = tk.StringVar(value=self.text["timer_idle"])
+        self.timer_display_var = tk.StringVar(value=self.text["timer_display_idle"])
+        self.market_summary_var = tk.StringVar(value=self.text["market_summary_empty"])
+        self.market_hint_var = tk.StringVar(value=self.text["market_hint_empty"])
+        self.customer_summary_var = tk.StringVar(value=self.text["customer_summary_empty"])
+        self.customer_hint_var = tk.StringVar(value=self.text["customer_hint_empty"])
         self.counteroffer_var = tk.StringVar()
+        self.status_var = tk.StringVar(value="Bereit.")
         for key in ("wert", "zustand", "sauberkeit", "schaden", "letzte_fahrt"):
             self.detail_vars[key] = tk.StringVar(value="-")
         self.setup_ui()
 
     def setup_ui(self):
-        self.root.title("RenzForge Autohaus Manager")
-        self.root.geometry("1660x980")
-        self.root.minsize(1360, 860)
+        self.root.title(self.text["app_title"])
+        self.root.geometry("1540x900")
+        self.root.minsize(1120, 720)
         self.root.configure(bg=PALETTE["app_bg"])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.setup_style()
         self.setup_header()
 
-        content = tk.Frame(self.root, bg=PALETTE["app_bg"])
-        content.pack(fill="both", expand=True, padx=18, pady=(0, 14))
+        self.content = tk.Frame(self.root, bg=PALETTE["app_bg"])
+        self.content.pack(fill="both", expand=True, padx=18, pady=(0, 14))
 
-        left = self.make_card(content)
-        left.pack(side="left", fill="both", expand=True)
-        right = self.make_card(content, width=390)
-        right.pack(side="right", fill="y", padx=(16, 0))
-        right.pack_propagate(False)
+        self.left_panel = self.make_card(self.content)
+        self.right_panel = self.make_card(self.content, width=390)
+        self.right_panel.pack_propagate(False)
 
-        self.setup_notebook(left)
-        self.setup_editor(right)
+        self.setup_notebook(self.left_panel)
+        self.setup_editor(self.right_panel)
         self.setup_log()
         self.setup_context_menus()
+        self.setup_tooltips()
         self.refresh_all_views()
+        self.apply_responsive_layout()
+        self.root.bind("<Configure>", self.on_root_resize, add="+")
 
     def setup_style(self):
         style = ttk.Style()
@@ -154,37 +237,37 @@ class AutoGUI:
 
     def setup_context_menus(self):
         self.general_menu = tk.Menu(self.root, tearoff=0)
-        self.general_menu.add_command(label="Neues Spiel", command=self.generieren)
-        self.general_menu.add_command(label="Alle tanken", command=self.tanken_alle)
-        self.general_menu.add_command(label="Alle laden", command=self.laden_alle)
-        self.general_menu.add_command(label="Status", command=self.status_alle)
+        self.general_menu.add_command(label=self.text["button_new_game"], command=self.generieren)
+        self.general_menu.add_command(label=self.text["menu_fill_all_fuel"], command=self.tanken_alle)
+        self.general_menu.add_command(label=self.text["menu_fill_all_charge"], command=self.laden_alle)
+        self.general_menu.add_command(label=self.text["menu_status"], command=self.status_alle)
         self.general_menu.add_separator()
-        self.general_menu.add_command(label="Bestand leeren", command=self.clear_inventory)
+        self.general_menu.add_command(label=self.text["menu_clear_inventory"], command=self.clear_inventory)
 
         self.market_menu = tk.Menu(self.root, tearoff=0)
-        self.market_menu.add_command(label="Angebot kaufen", command=self.buy_selected_offer)
-        self.market_menu.add_command(label="Angebot ablehnen", command=self.reject_selected_offer)
+        self.market_menu.add_command(label=self.text["menu_buy_offer"], command=self.buy_selected_offer)
+        self.market_menu.add_command(label=self.text["menu_reject_offer"], command=self.reject_selected_offer)
         self.market_menu.add_separator()
-        self.market_menu.add_command(label="Markt auffrischen", command=self.refresh_market_offers)
-        self.market_menu.add_command(label="Neues Spiel", command=self.generieren)
+        self.market_menu.add_command(label=self.text["menu_refresh_market"], command=self.refresh_market_offers)
+        self.market_menu.add_command(label=self.text["button_new_game"], command=self.generieren)
 
         self.customer_menu = tk.Menu(self.root, tearoff=0)
-        self.customer_menu.add_command(label="Angebot holen", command=self.request_customer_offer)
-        self.customer_menu.add_command(label="Gegenangebot senden", command=self.prompt_counteroffer)
-        self.customer_menu.add_command(label="Annehmen", command=self.accept_customer_offer)
-        self.customer_menu.add_command(label="Ablehnen", command=self.reject_customer_offer)
+        self.customer_menu.add_command(label=self.text["menu_request_offer"], command=self.request_customer_offer)
+        self.customer_menu.add_command(label=self.text["menu_send_counteroffer"], command=self.prompt_counteroffer)
+        self.customer_menu.add_command(label=self.text["menu_accept"], command=self.accept_customer_offer)
+        self.customer_menu.add_command(label=self.text["menu_reject"], command=self.reject_customer_offer)
 
         self.vehicle_menu = tk.Menu(self.root, tearoff=0)
-        self.vehicle_menu.add_command(label="Gross bearbeiten", command=self.open_editor_tab)
-        self.vehicle_menu.add_command(label="Kundenangebot holen", command=self.request_customer_offer)
-        self.vehicle_menu.add_command(label="Speichern", command=self.save_vehicle_changes)
+        self.vehicle_menu.add_command(label=self.text["menu_edit_large"], command=self.open_editor_tab)
+        self.vehicle_menu.add_command(label=self.text["menu_request_offer"], command=self.request_customer_offer)
+        self.vehicle_menu.add_command(label=self.text["menu_save"], command=self.save_vehicle_changes)
         self.vehicle_menu.add_separator()
-        self.vehicle_menu.add_command(label="Waschen", command=self.wash_selected_vehicle)
-        self.vehicle_menu.add_command(label="Warten", command=self.service_selected_vehicle)
-        self.vehicle_menu.add_command(label="Reparieren", command=self.repair_selected_vehicle)
-        self.vehicle_menu.add_command(label="Voll machen", command=self.fill_selected_vehicle)
+        self.vehicle_menu.add_command(label=self.text["menu_wash"], command=self.wash_selected_vehicle)
+        self.vehicle_menu.add_command(label=self.text["menu_service"], command=self.service_selected_vehicle)
+        self.vehicle_menu.add_command(label=self.text["menu_repair"], command=self.repair_selected_vehicle)
+        self.vehicle_menu.add_command(label=self.text["menu_fill_up"], command=self.fill_selected_vehicle)
         self.vehicle_menu.add_separator()
-        self.vehicle_menu.add_command(label="Ins Log schreiben", command=self.log_selected_vehicle)
+        self.vehicle_menu.add_command(label=self.text["menu_log"], command=self.log_selected_vehicle)
 
         self.bind_context_menu_recursive(self.header_action_shell, self.show_general_menu)
         self.bind_context_menu_recursive(self.market_context_shell, self.show_market_menu)
@@ -264,7 +347,7 @@ class AutoGUI:
 
     def open_game_guide(self):
         if not os.path.exists(self.game_guide_path):
-            gui_print(self.log, "Die Spielprinzip-Datei wurde nicht gefunden.")
+            gui_print(self.log, self.text["guide_missing"])
             return
 
         try:
@@ -274,6 +357,87 @@ class AutoGUI:
                 self.log,
                 f"Konnte die Spielprinzip-Datei nicht öffnen: {self.game_guide_path}",
             )
+
+    def setup_tooltips(self):
+        self.tooltips = []
+        if hasattr(self, "header_action_shell"):
+            self.add_tooltip(
+                self.header_action_shell,
+                "Oben siehst du Tag, Kapital und den Countdown. Rechtsklick hier für Hof-Aktionen.",
+            )
+        if hasattr(self, "header_new_game_button"):
+            self.add_tooltip(
+                self.header_new_game_button,
+                "Startet einen neuen Lauf und würfelt direkt 4 bis 20 Marktangebote.",
+            )
+        if hasattr(self, "header_guide_button"):
+            self.add_tooltip(
+                self.header_guide_button,
+                "Öffnet die kurze TXT mit dem Spielprinzip und den wichtigsten Entscheidungen.",
+            )
+        if hasattr(self, "market_tree") and self.market_tree is not None:
+            self.add_tooltip(
+                self.market_tree,
+                "Marktangebote anklicken und per Rechtsklick kaufen oder ablehnen.",
+            )
+        if hasattr(self, "customer_tree") and self.customer_tree is not None:
+            self.add_tooltip(
+                self.customer_tree,
+                "Hier laufen Verhandlungen. Rechtsklick für Gegenangebot, Annehmen oder Ablehnen.",
+            )
+        if hasattr(self, "editor_context_shell"):
+            self.add_tooltip(
+                self.editor_context_shell,
+                "Kurzprofil des ausgewählten Autos. Rechtsklick für Pflegen, Speichern und Angebote holen.",
+            )
+        if hasattr(self, "status_label"):
+            self.add_tooltip(self.status_label, self.status_tooltip_text)
+
+    def add_tooltip(self, widget, text_source):
+        self.tooltips.append(ToolTip(widget, text_source))
+
+    def status_tooltip_text(self):
+        recent = self.log.recent_messages()
+        if not recent:
+            return "Noch keine Aktionen im Verlauf."
+        return "Letzte Meldungen:\n" + "\n".join(recent)
+
+    def on_root_resize(self, event):
+        if event.widget is not self.root:
+            return
+        self.apply_responsive_layout()
+
+    def apply_responsive_layout(self):
+        if not hasattr(self, "left_panel") or not hasattr(self, "right_panel"):
+            return
+
+        target_mode = "stacked" if self.root.winfo_width() < 1480 else "wide"
+        if target_mode == self.layout_mode:
+            return
+
+        self.left_panel.pack_forget()
+        self.right_panel.pack_forget()
+
+        if target_mode == "stacked":
+            self.right_panel.configure(width=0)
+            self.right_panel.pack_propagate(True)
+            self.left_panel.pack(fill="both", expand=True)
+            self.right_panel.pack(fill="x", pady=(16, 0))
+            if hasattr(self, "sidebar_selection_label"):
+                self.sidebar_selection_label.configure(wraplength=760)
+            if hasattr(self, "status_label"):
+                self.status_label.configure(wraplength=max(self.root.winfo_width() - 180, 480))
+        else:
+            self.right_panel.configure(width=390)
+            self.right_panel.pack_propagate(False)
+            self.left_panel.pack(side="left", fill="both", expand=True)
+            self.right_panel.pack(side="right", fill="y", padx=(16, 0))
+            if hasattr(self, "sidebar_selection_label"):
+                self.sidebar_selection_label.configure(wraplength=290)
+            if hasattr(self, "status_label"):
+                self.status_label.configure(wraplength=max(self.root.winfo_width() - 280, 720))
+
+        self.layout_mode = target_mode
 
     def _legacy_setup_header(self):
         hero = self.make_card(self.root, pad=0)
@@ -467,7 +631,7 @@ class AutoGUI:
 
         tk.Label(
             brand,
-            text="Autohaus-Sandbox mit Tageswechsel, Verschleiss, Unfällen und Verkaufsdruck.",
+            text=self.text["header_subtitle"],
             fg=PALETTE["muted"],
             bg=PALETTE["card"],
             font=("Segoe UI", 11),
@@ -482,26 +646,24 @@ class AutoGUI:
             justify="left",
         ).pack(anchor="w", pady=(14, 0))
 
-        dashboard = tk.Frame(inner, bg=PALETTE["card"], width=560)
-        dashboard.pack(side="right", fill="y")
-        dashboard.pack_propagate(False)
+        dashboard = tk.Frame(inner, bg=PALETTE["card"], width=540)
+        dashboard.pack(side="right", anchor="n")
 
         stats_shell = tk.Frame(
             dashboard,
             bg=PALETTE["card_alt"],
             highlightbackground=PALETTE["line"],
             highlightthickness=1,
-            padx=16,
-            pady=14,
+            padx=14,
+            pady=12,
         )
         stats_shell.pack(fill="x")
         self.header_action_shell = stats_shell
-        
 
         stat_rows = [
-            ("Tag", "tag", PALETTE["accent"]),
-            ("Kapital", "cash", "#f59e0b"),
-            ("Kapitalziel", "target_cash", "#22c55e"),
+            (self.text["header_tag"], "tag", PALETTE["accent"]),
+            (self.text["header_cash"], "cash", "#f59e0b"),
+            (self.text["header_target_cash"], "target_cash", "#22c55e"),
         ]
         for title, key, color in stat_rows:
             self.header_stat_vars[key] = tk.StringVar(value="-")
@@ -525,15 +687,15 @@ class AutoGUI:
                 font=("Segoe UI Semibold", 10),
             ).pack(side="right")
 
-        tk.Frame(stats_shell, bg=PALETTE["line"], height=1).pack(fill="x", pady=(10, 8))
+        tk.Frame(stats_shell, bg=PALETTE["line"], height=1).pack(fill="x", pady=(8, 6))
         timer_row = tk.Frame(stats_shell, bg=PALETTE["card_alt"])
-        timer_row.pack(fill="x", pady=(0, 6))
+        timer_row.pack(fill="x", pady=(0, 4))
         bullet = tk.Frame(timer_row, bg=PALETTE["accent_two"], width=10, height=10)
         bullet.pack(side="left", pady=6)
         bullet.pack_propagate(False)
         tk.Label(
             timer_row,
-            text="Nächster Tag",
+            text=self.text["header_next_day"],
             fg=PALETTE["muted"],
             bg=PALETTE["card_alt"],
             font=("Segoe UI", 10, "bold"),
@@ -546,37 +708,31 @@ class AutoGUI:
             font=("Segoe UI Semibold", 10),
         ).pack(side="right")
 
-        tk.Frame(stats_shell, bg=PALETTE["line"], height=1).pack(fill="x", pady=(8, 10))
-        tk.Label(
-            stats_shell,
-            text="Neues Spiel wuerfelt den Markt automatisch zwischen 4 und 20 Angeboten.",
-            fg=PALETTE["muted"],
-            bg=PALETTE["card_alt"],
-            font=("Segoe UI", 9),
-            wraplength=500,
-            justify="left",
-        ).pack(anchor="w", pady=(0, 10))
+        tk.Frame(stats_shell, bg=PALETTE["line"], height=1).pack(fill="x", pady=(8, 8))
         header_buttons = tk.Frame(stats_shell, bg=PALETTE["card_alt"])
-        header_buttons.pack(fill="x", pady=(0, 10))
-        self.make_button(
+        header_buttons.pack(fill="x")
+        header_buttons.grid_columnconfigure(0, weight=1)
+        header_buttons.grid_columnconfigure(1, weight=1)
+        self.header_new_game_button = self.make_button(
             header_buttons,
-            "Neues Spiel",
+            self.text["button_new_game"],
             self.generieren,
             PALETTE["accent"],
-        ).pack(side="left")
-        self.make_button(
+            padx=12,
+            pady=5,
+            font=("Segoe UI Semibold", 9),
+        )
+        self.header_new_game_button.grid(row=0, column=0, sticky="ew")
+        self.header_guide_button = self.make_button(
             header_buttons,
-            "Spielprinzip TXT",
+            self.text["button_guide"],
             self.open_game_guide,
             "#334155",
-        ).pack(side="left", padx=(10, 0))
-        tk.Label(
-            stats_shell,
-            text="Rechtsklick hier fuer Neues Spiel und Hof-Aktionen.",
-            fg="#c4b5fd",
-            bg=PALETTE["card_alt"],
+            padx=12,
+            pady=5,
             font=("Segoe UI Semibold", 9),
-        ).pack(anchor="w")
+        )
+        self.header_guide_button.grid(row=0, column=1, sticky="ew", padx=(8, 0))
 
     def setup_notebook(self, parent):
         header = tk.Frame(parent, bg=PALETTE["card"])
@@ -1237,7 +1393,7 @@ class AutoGUI:
             bg=PALETTE["card"],
             font=("Segoe UI", 10, "bold"),
         ).pack(anchor="w", padx=12, pady=(12, 4))
-        tk.Label(
+        self.sidebar_selection_label = tk.Label(
             summary,
             textvariable=self.selection_var,
             fg=PALETTE["text"],
@@ -1245,7 +1401,8 @@ class AutoGUI:
             font=("Segoe UI", 10),
             wraplength=300,
             justify="left",
-        ).pack(anchor="w", padx=12, pady=(0, 12))
+        )
+        self.sidebar_selection_label.pack(anchor="w", padx=12, pady=(0, 12))
 
         details = tk.Frame(summary, bg=PALETTE["card"])
         details.pack(fill="x", padx=12, pady=(0, 12))
@@ -1280,39 +1437,38 @@ class AutoGUI:
     def setup_log(self):
         shell = self.make_card(self.root)
         shell.pack(fill="x", padx=18, pady=(2, 18))
-        header = tk.Frame(shell, bg=PALETTE["card"])
-        header.pack(fill="x", padx=18, pady=(16, 8))
-        tk.Label(
-            header,
-            text="Log und Tageskram",
-            fg=PALETTE["text"],
-            bg=PALETTE["card"],
-            font=("Bahnschrift", 16, "bold"),
-        ).pack(anchor="w")
-        tk.Label(
-            header,
-            text="Hier landet alles, was im Autohaus so passiert.",
-            fg=PALETTE["muted"],
-            bg=PALETTE["card"],
-            font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(4, 0))
-        log_shell = tk.Frame(shell, bg=PALETTE["input_bg"], highlightbackground=PALETTE["line"], highlightthickness=1)
-        log_shell.pack(fill="x", padx=18, pady=(0, 18))
-        self.log = tk.Text(
-            log_shell,
-            height=8,
+        bar = tk.Frame(
+            shell,
             bg=PALETTE["input_bg"],
-            fg=PALETTE["text"],
-            insertbackground=PALETTE["text"],
-            relief="flat",
-            font=("Consolas", 10),
-            padx=14,
-            pady=12,
+            highlightbackground=PALETTE["line"],
+            highlightthickness=1,
         )
-        self.log.pack(fill="x")
+        bar.pack(fill="x", padx=18, pady=18)
+        accent = tk.Frame(bar, bg=PALETTE["accent_two"], width=4)
+        accent.pack(side="left", fill="y")
+        content = tk.Frame(bar, bg=PALETTE["input_bg"])
+        content.pack(side="left", fill="x", expand=True, padx=12, pady=10)
+        tk.Label(
+            content,
+            text="Letzte Aktion",
+            fg=PALETTE["muted"],
+            bg=PALETTE["input_bg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w")
+        self.status_label = tk.Label(
+            content,
+            textvariable=self.status_var,
+            fg=PALETTE["text"],
+            bg=PALETTE["input_bg"],
+            font=("Segoe UI", 10),
+            wraplength=1400,
+            justify="left",
+        )
+        self.status_label.pack(anchor="w", pady=(4, 0))
+        self.log = StatusLogProxy(self.status_var)
         gui_print(
             self.log,
-            "App gestartet. Starte ein neues Spiel oder baue deinen Bestand direkt auf.",
+            "App gestartet. Fahr mit der Maus über Buttons für Tipps oder nutze Rechtsklick für Aktionen.",
         )
 
     def field_values(self, key):
@@ -2761,8 +2917,8 @@ class AutoGUI:
         return tk.Frame(parent, bg=PALETTE["card"], highlightbackground=PALETTE["line"], highlightthickness=1, width=width)
 
     @staticmethod
-    def make_button(parent, text, command, bg):
-        return tk.Button(parent, text=text, command=command, bg=bg, fg="#ffffff", activebackground=bg, activeforeground="#ffffff", relief="flat", padx=16, pady=8, cursor="hand2", font=("Segoe UI Semibold", 10))
+    def make_button(parent, text, command, bg, padx=16, pady=8, font=("Segoe UI Semibold", 10)):
+        return tk.Button(parent, text=text, command=command, bg=bg, fg="#ffffff", activebackground=bg, activeforeground="#ffffff", relief="flat", padx=padx, pady=pady, cursor="hand2", font=font)
 
     @staticmethod
     def format_currency(value):

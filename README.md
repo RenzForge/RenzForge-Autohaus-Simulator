@@ -1,34 +1,67 @@
 # RenzForge Autohaus Manager
 
-Ein kleines Python-Spielprojekt mit `tkinter`, in dem du dir einen Fahrzeugbestand zusammenklicken, ansehen und bearbeiten kannst.  
-Die App hat sich mit der Zeit von einer einfachen Auto-Liste zu einem kleinen Autohaus-Dashboard entwickelt.
+Ein kleines `tkinter`-Projekt, das sich inzwischen eher wie ein Autohaus-Spiel anfühlt als wie ein reines Verwaltungs-Tool.
 
-## Was die App kann
+## Was gerade drin ist
 
-- zufällige Fahrzeuge generieren
-- normale und Premium-Fahrzeuge trennen
-- Benziner tanken und Elektroautos laden
-- einzelne Fahrzeuge direkt im GUI bearbeiten
-- Statistiken zum Bestand anzeigen
-- ein eigenes Logo im Header anzeigen
+- Markt mit einkaufbaren Fahrzeug-Angeboten
+- Angebote können gekauft oder ausgeschlagen werden
+- normales und Premium-Autohaus
+- Tag für Tag Simulation
+- automatische Fahrten für alle Fahrzeuge im Bestand
+- Verschleiß, Dreck, Wertverlust und Unfallrisiko
+- Kasse, Verkaufsziel und Verkäufe
+- Kundenangebote und erste Preisverhandlungen
+- einzelne Fahrzeuge waschen, warten, reparieren oder verkaufen
+- Fahrzeuge direkt im GUI bearbeiten
+- Statistiken und Log-Ausgabe
 
-## GUI-Aufbau
+## Spiel-Loop
 
-Die Oberfläche ist in mehrere Bereiche aufgeteilt:
+Die Idee ist simpel:
 
-- `Alle Autos`
-- `Normale Ecke`
-- `Premium Ecke`
-- `Bearbeiten`
-- `Statistiken`
+1. Neues Spiel starten
+2. Im Tab `Einkaufen` gute Angebote suchen
+3. Fahrzeuge einkaufen oder unsichere Deals ablehnen
+4. `Nächster Tag` drücken
+5. Autos fahren automatisch, sammeln Kilometer, werden schmutzig und verlieren Wert
+6. Für gute Autos Kundenangebote holen und nachverhandeln
+7. Schlechte Autos erst pflegen oder reparieren
+8. Kasse Richtung Ziel treiben
 
-Rechts gibt es außerdem einen kleinen Schnellbereich für das aktuell ausgewählte Fahrzeug.
+## Wichtige Werte pro Auto
 
-## Voraussetzungen
+- `Kilometer`
+- `Zustand`
+- `Sauberkeit`
+- `Schaden`
+- `Energie`
+- `Verkaufswert`
+
+## Wichtige Aktionen
+
+- `Neues Spiel`
+- `Ausgewähltes Angebot kaufen`
+- `Angebot ablehnen`
+- `Markt auffrischen`
+- `Angebot holen`
+- `Nachverhandeln`
+- `Annehmen`
+- `Ablehnen`
+- `Nächster Tag`
+- `Alle tanken`
+- `Alle laden`
+- `Verkaufen`
+- `Waschen`
+- `Warten`
+- `Reparieren`
+
+## Starten
+
+Voraussetzungen:
 
 - Python 3.10 oder neuer
-- `tkinter`  
-  Ist bei den meisten Windows-Python-Installationen schon dabei.
+- `tkinter`
 - `Pillow`
 
 Installation:
@@ -37,40 +70,25 @@ Installation:
 pip install pillow
 ```
 
-## Starten
+Start:
 
 ```bash
 python main.py
 ```
 
-## Bearbeiten von Fahrzeugen
-
-1. In einer Tabelle ein Auto anklicken.
-2. Rechts auf `Groß bearbeiten` klicken.
-3. Im Tab `Bearbeiten` Werte ändern.
-4. Auf `Speichern` drücken.
-
-Wichtig: Die Änderungen werden aktuell nur im laufenden Programm gehalten.  
-Wenn du die App schließt, ist der Bestand wieder weg. Es gibt im Moment noch keine Speicherung per JSON oder Datenbank.
-
 ## Projektstruktur
 
-- [main.py](C:/Users/renzl/Documents/Coding%20Resourcen/Challanges%20Python/main.py) startet die App
-- [gui.py](C:/Users/renzl/Documents/Coding%20Resourcen/Challanges%20Python/gui.py) enthält das komplette Tkinter-GUI
-- [models.py](C:/Users/renzl/Documents/Coding%20Resourcen/Challanges%20Python/models.py) enthält `Auto`, `ElektroAuto` und `Garage`
-- [data.py](C:/Users/renzl/Documents/Coding%20Resourcen/Challanges%20Python/data.py) enthält Marken, Farben, Besitzer und Autohaus-Daten
-- [branding.py](C:/Users/renzl/Documents/Coding%20Resourcen/Challanges%20Python/branding.py) rendert das Logo
-- [assets/logo.svg](C:/Users/renzl/Documents/Coding%20Resourcen/Challanges%20Python/assets/logo.svg) ist das lokale Logo
+- `main.py`: Startpunkt der App
+- `gui.py`: Tkinter-Oberfläche
+- `models.py`: Fahrzeuglogik, Spielwerte und Tages-Simulation
+- `data.py`: Marken, Farben, Besitzer und Standorte
+- `branding.py`: Logo-Rendering
+- `assets/logo.svg`: Logo-Datei
 
 ## Nächste sinnvolle Ausbaustufen
 
+- Fahrzeuge gezielt einkaufen statt nur Markt-Refresh
 - JSON-Speichern und Laden
-- Fahrzeuge manuell neu anlegen oder löschen
-- Suche und Filter
-- Sortierung nach Preis, PS oder Baujahr
-- Status wie `reserviert` oder `verkauft`
-
-## Kleiner Hinweis
-
-Der Code ist bewusst eher wie ein Spaßprojekt gehalten und nicht wie ein superstrenges Produktivsystem.  
-Wenn du magst, kann man daraus als Nächstes noch eine sauberere Version mit Persistenz, besserer Struktur und vielleicht sogar einem kleinen Verkaufssystem machen.
+- Werkstatt-Upgrades
+- Events wie Sammler, Auktionen oder spontane Schäden
+- mehrere Kunden gleichzeitig statt nur ein laufender Deal
